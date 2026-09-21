@@ -1,9 +1,21 @@
 # Build CMake
 build/
+out/
 
-# Éditeur / macOS
+# Éditeur / IDE
 .vscode/
-.DS_Store
+.vs/
+*.sln
+*.vcxproj
+*.user
 
 # Généré par ImGui à l’exécution
 imgui.ini
+
+# Fichiers de build volumineux / temporaires de Visual Studio
+*.suo
+*.ntvs*
+*.njsproj
+*.sln.docstates
+*.db
+*.ipch

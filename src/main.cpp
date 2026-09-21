@@ -83,6 +83,9 @@ struct App : public OpenGLApplication
         // TODO: Partie 2: Activez le test de profondeur (GL_DEPTH_TEST) et
         //       l'élimination des faces arrières (GL_CULL_FACE).
 
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+
         loadShaderPrograms();
 
         // Partie 1
@@ -128,6 +131,7 @@ struct App : public OpenGLApplication
         // Nettoyage de la surface de dessin.
         glClear(GL_COLOR_BUFFER_BIT);
         // TODO: Partie 2: Ajoutez le nettoyage du tampon de profondeur.
+        glClear(GL_DEPTH_BUFFER_BIT);
 
         ImGui::Begin("Scene Parameters");
         ImGui::Combo("Scene", &currentScene_, SCENE_NAMES, N_SCENE_NAMES);
@@ -309,11 +313,11 @@ struct App : public OpenGLApplication
     {
         const float RADIUS = 0.7f;
         float theta, r, g, b, x, y;
-        vertices_[0] = Sommet{{0.0f, 0.08f}, glm::vec3(1.00f, 1.00f, 1.00f)};
+        vertices_[0] = Sommet{ {0.0f, 0.0f}, glm::vec3(1.00f, 1.00f, 1.00f) };
 
         for (int i = 0; i < nSide_; i++)
         {
-            theta = glm::two_pi<float>() * i / nSide_;
+            theta = glm::half_pi<float>() + glm::two_pi<float>() * i / nSide_;
             float t = (float)i / nSide_;
 
             x = RADIUS * std::cos(theta);
@@ -380,11 +384,11 @@ struct App : public OpenGLApplication
             generateNgon();
 
             glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices_), vertices_);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, (nSide_ + 1) * sizeof(Sommet), vertices_);
 
-            glBindVertexArray(vao_);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
             glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, 3 * nSide_ * sizeof(GLuint), elements_);
-            glBindVertexArray(0);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
         }
 
         glUseProgram(basicSP_);

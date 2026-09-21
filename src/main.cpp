@@ -12,6 +12,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/constants.hpp>
 
 #include "happly.h"
 #include <imgui/imgui.h>
@@ -93,7 +94,7 @@ struct App : public OpenGLApplication
         // TODO: Insérez les initialisations supplémentaires ici au besoin.
     }
 
-    void checkShaderCompilingError(const char* name, GLuint id)
+    void checkShaderCompilingError(const char *name, GLuint id)
     {
         GLint success;
         GLchar infoLog[1024];
@@ -107,7 +108,7 @@ struct App : public OpenGLApplication
         }
     }
 
-    void checkProgramLinkingError(const char* name, GLuint id)
+    void checkProgramLinkingError(const char *name, GLuint id)
     {
         GLint success;
         GLchar infoLog[1024];
@@ -150,7 +151,7 @@ struct App : public OpenGLApplication
     }
 
     // Appelée lors d'une touche de clavier.
-    void onKeyPress(const sf::Event::KeyPressed& key) override
+    void onKeyPress(const sf::Event::KeyPressed &key) override
     {
         using enum sf::Keyboard::Key;
         switch (key.code)
@@ -179,11 +180,11 @@ struct App : public OpenGLApplication
         }
     }
 
-    void onResize(const sf::Event::Resized& event) override
+    void onResize(const sf::Event::Resized &event) override
     {
     }
 
-    void onMouseMove(const sf::Event::MouseMoved& mouseDelta) override
+    void onMouseMove(const sf::Event::MouseMoved &mouseDelta) override
     {
         if (!isMouseMotionEnabled_)
             return;
@@ -251,7 +252,7 @@ struct App : public OpenGLApplication
         grass_.load("../models/grass.ply");
     }
 
-    GLuint loadShaderObject(GLenum type, const char* path)
+    GLuint loadShaderObject(GLenum type, const char *path)
     {
         // Créer les objets de shaders.
         // shaderProgram = glCreateProgram(); --> mettre dans une autre méthode
@@ -276,12 +277,12 @@ struct App : public OpenGLApplication
     void loadShaderPrograms()
     {
         // Partie 1
-        const char* BASIC_VERTEX_SRC_PATH = "./shaders/basic.vs.glsl";
-        const char* BASIC_FRAGMENT_SRC_PATH = "./shaders/basic.fs.glsl";
+        const char *BASIC_VERTEX_SRC_PATH = "./shaders/basic.vs.glsl";
+        const char *BASIC_FRAGMENT_SRC_PATH = "./shaders/basic.fs.glsl";
 
         // Partie 2
-        const char* TRANSFORM_VERTEX_SRC_PATH = "./shaders/transform.vs.glsl";
-        const char* TRANSFORM_FRAGMENT_SRC_PATH = "./shaders/transform.fs.glsl";
+        const char *TRANSFORM_VERTEX_SRC_PATH = "./shaders/transform.vs.glsl";
+        const char *TRANSFORM_FRAGMENT_SRC_PATH = "./shaders/transform.fs.glsl";
 
         basicSP_ = glCreateProgram();
         GLuint vs = loadShaderObject(GL_VERTEX_SHADER, BASIC_VERTEX_SRC_PATH);
@@ -296,7 +297,7 @@ struct App : public OpenGLApplication
         glDetachShader(basicSP_, fs);
 
         glDeleteShader(vs);
-        glDeleteShader(vs);
+        glDeleteShader(fs);
 
         checkProgramLinkingError("basic", basicSP_);
 
@@ -306,14 +307,27 @@ struct App : public OpenGLApplication
 
     void generateNgon()
     {
-        // TODO: Générez un polygone à N côtés (couramment appelé N-gon).
-        //       Vous devez gérer les cas entre 5 et 12 côtés (pentagone, hexagone
-        //       , etc.). Ceux-ci ont un rayon constant de 0.7.
-        //       Chaque point possède une couleur (libre au choix).
-        //       Vous devez minimiser le nombre de points et définir des indices
-        //       pour permettre la réutilisation.
-
         const float RADIUS = 0.7f;
+        float theta, r, g, b, x, y;
+        vertices_[0] = Sommet{{0.0f, 0.08f}, glm::vec3(1.00f, 1.00f, 1.00f)};
+
+        for (int i = 0; i < nSide_; i++)
+        {
+            theta = glm::two_pi<float>() * i / nSide_;
+            float t = (float)i / nSide_;
+
+            x = RADIUS * std::cos(theta);
+            y = RADIUS * std::sin(theta);
+            r = 0.5f + 0.5f * std::cos(glm::two_pi<float>() * (t));
+            g = 0.5f + 0.5f * std::cos(glm::two_pi<float>() * (t - 1.0f / 3));
+            b = 0.5f + 0.5f * std::cos(glm::two_pi<float>() * (t - 2.0f / 3));
+
+            vertices_[i + 1] = Sommet{{x, y}, glm::vec3(r, g, b)};
+
+            elements_[3 * i] = 0;
+            elements_[3 * i + 1] = i + 1;
+            elements_[3 * i + 2] = (i + 1) % nSide_ + 1;
+        }
     }
 
     void initShapeData()
@@ -338,11 +352,11 @@ struct App : public OpenGLApplication
 
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Sommet),
-            (const void*)offsetof(Sommet, pos));
+                              (const void *)offsetof(Sommet, pos));
 
         glEnableVertexAttribArray(1);
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Sommet),
-            (const void*)offsetof(Sommet, couleur));
+                              (const void *)offsetof(Sommet, couleur));
 
         // La liaison du ebo fait partie de l'état du vao.
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
@@ -363,19 +377,23 @@ struct App : public OpenGLApplication
         if (hasNumberOfSidesChanged)
         {
             oldNSide_ = nSide_;
-            // generateNgon(vertices_, elements_, nSide_);
+            generateNgon();
 
-            // TODO: Le nombre de côtés a changé, la méthode App::generateNgon
-            //       (que vous avez implémentée) a modifié les données sur le CPU.
-            //       Ici, il faut envoyer les données à jour au GPU.
-            //       Attention, il ne faut pas faire d'allocation/réallocation, on veut
-            //       seulement mettre à jour les buffers actuels.
+            glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices_), vertices_);
+
+            glBindVertexArray(vao_);
+            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, 3 * nSide_ * sizeof(GLuint), elements_);
+            glBindVertexArray(0);
         }
 
-        // TODO: Dessin du polygone.
+        glUseProgram(basicSP_);
+        glBindVertexArray(vao_);
+        glDrawElements(GL_TRIANGLES, 3 * nSide_, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
     }
 
-    void drawGround(glm::mat4& projView)
+    void drawGround(glm::mat4 &projView)
     {
         // TODO: Dessin du sol.
         //
@@ -456,7 +474,7 @@ private:
     glm::vec2 cameraOrientation_;
 
     // Imgui var
-    const char* const SCENE_NAMES[2] = {
+    const char *const SCENE_NAMES[2] = {
         "Introduction",
         "3D Model & transformation",
     };
@@ -466,7 +484,7 @@ private:
     bool isMouseMotionEnabled_;
 };
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
     WindowSettings settings = {};
     settings.fps = 60;

@@ -42,7 +42,7 @@ struct WindowSettings
 {
 	sf::VideoMode videoMode = sf::VideoMode({600, 600});
 	int fps = 30;
-	sf::ContextSettings context = sf::ContextSettings(24, 8);
+	sf::ContextSettings context = sf::ContextSettings{24, 8};
 };
 
 // Classe de base pour les application OpenGL. Fait pour nous la création de fenêtre et la gestion des événements.

@@ -1,0 +1,9 @@
+# Build CMake
+build/
+
+# Éditeur / macOS
+.vscode/
+.DS_Store
+
+# Généré par ImGui à l’exécution
+imgui.ini

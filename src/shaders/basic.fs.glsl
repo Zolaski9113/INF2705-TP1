@@ -3,7 +3,10 @@
 // TODO: La couleur des fragments est donnée à partir de la couleur
 //       des vertices passée en entrée.
 
-void main()
-{
-    
+
+in vec4 laCouleur;
+out vec4 fragColor;
+  
+void main(void) { 
+    fragColor = laCouleur; 
 }

@@ -422,7 +422,13 @@ struct App : public OpenGLApplication
         //       La caméra est placée à la position cameraPosition et orientée
         //       par les angles cameraOrientation (en radian).
 
-        return glm::mat4(1.0);
+        glm::mat4 view = glm::mat4(1.0f);
+
+        view = glm::rotate(view, -cameraOrientation_.x, glm::vec3(1.0f, 0.0f, 0.0f));
+        view = glm::rotate(view, -cameraOrientation_.y, glm::vec3(0.0f, 1.0f, 0.0f));
+        view = glm::translate(view, -cameraPosition_);
+
+        return view;
     }
 
     glm::mat4 getPerspectiveProjectionMatrix()
@@ -433,8 +439,9 @@ struct App : public OpenGLApplication
         //
 
         // getWindowAspect();
+        
+        return glm::perspective(glm::radians(70.0f), getWindowAspect(), 0.1f, 300.0f);
 
-        return glm::mat4(1.0);
     }
 
     void sceneModels()

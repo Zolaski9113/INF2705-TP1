@@ -95,6 +95,26 @@ struct App : public OpenGLApplication
         loadModels();
 
         // TODO: Insérez les initialisations supplémentaires ici au besoin.
+
+        transformSP_ = glCreateProgram();
+        GLuint vsT = loadShaderObject(GL_VERTEX_SHADER, "./shaders/transform.vs.glsl");
+        GLuint fsT = loadShaderObject(GL_FRAGMENT_SHADER, "./shaders/transform.fs.glsl");
+
+        glAttachShader(transformSP_, vsT);
+        glAttachShader(transformSP_, fsT);
+        glLinkProgram(transformSP_);
+
+        glDetachShader(transformSP_, vsT);
+        glDetachShader(transformSP_, fsT);
+        glDeleteShader(vsT);
+        glDeleteShader(fsT);
+
+        checkProgramLinkingError("transform", transformSP_);
+
+        mvpUniformLocation_ = glGetUniformLocation(transformSP_, "mvp");
+        windmill_.mvpUniformLocation = mvpUniformLocation_;
+
+        projectionMatrix_ = getPerspectiveProjectionMatrix();
     }
 
     void checkShaderCompilingError(const char *name, GLuint id)
@@ -129,9 +149,8 @@ struct App : public OpenGLApplication
     void drawFrame() override
     {
         // Nettoyage de la surface de dessin.
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         // TODO: Partie 2: Ajoutez le nettoyage du tampon de profondeur.
-        glClear(GL_DEPTH_BUFFER_BIT);
 
         ImGui::Begin("Scene Parameters");
         ImGui::Combo("Scene", &currentScene_, SCENE_NAMES, N_SCENE_NAMES);
@@ -406,6 +425,15 @@ struct App : public OpenGLApplication
         //       Le gazon a une mise à l'échelle pour être long de 50
         //       unités et large de 50. Celui-ci doit aussi être légèrement
         //       baisé de 0.1.
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, -0.1f, 0.0f));
+        model = glm::scale(model, glm::vec3(50.0f, 1.0f, 50.0f));
+
+        glm::mat4 mvp = projView * model;
+
+        glUniformMatrix4fv(mvpUniformLocation_, 1, GL_FALSE, glm::value_ptr(mvp));
+
+        grass_.draw();
     }
 
     glm::mat4 getViewMatrix()
@@ -457,6 +485,16 @@ struct App : public OpenGLApplication
         // TODO: Dessin de la totalité de la scène graphique.
         //       On devrait voir le gazon et le moulin.
         //       Le moulin est contrôlable avec l'interface graphique.
+        glUseProgram(transformSP_);
+
+        glm::mat4 proj = projectionMatrix_;
+        glm::mat4 view = getViewMatrix();
+        glm::mat4 projView = proj * view;
+
+        drawGround(projView);
+        windmill_.draw(projView);
+
+        glUseProgram(0);
     }
 
 private:
@@ -493,6 +531,7 @@ private:
     int currentScene_;
 
     bool isMouseMotionEnabled_;
+    glm::mat4 projectionMatrix_;
 };
 
 int main(int argc, char *argv[])

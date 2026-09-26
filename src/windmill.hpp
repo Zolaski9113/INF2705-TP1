@@ -21,6 +21,10 @@ private:
     //       Il sera important de penser à comment réutiliser le plus possible les matrices.
     //       Utilisez le passage par référence ou par copie pour vous aider. Faites des attributs
     //       supplémentaire si nécessaire.
+    void drawRoofAndRotor(glm::mat4& projView, glm::mat4 baseMat);
+    void drawBlades(glm::mat4& projView, glm::mat4 rotorCenter);
+    void drawMechanism(glm::mat4& projView, glm::mat4 baseMat);
+
     
 private:    
     Model blade_;

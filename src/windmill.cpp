@@ -78,6 +78,76 @@ void Windmill::draw(glm::mat4& projView)
     // Celle-ci tourne en même temps qu'elle avance, à un rythme 2.27 fois plus rapide que la rotation
     // du mât.
 
+    glm::mat4 base = glm::mat4(1.0f);
+    base = glm::translate(base, glm::vec3(0.0f, -0.04f, -10.0f));
+    base = glm::scale(base, glm::vec3(5.0f));
+    base = glm::translate(base, glm::vec3(0.0f, 0.06f, 0.0f));
+
+    glm::mat4 mvp = projView * base;
+    glUniformMatrix4fv(mvpUniformLocation, 1, GL_FALSE, glm::value_ptr(mvp));
+    walls_.draw();
+
+    drawRoofAndRotor(projView, base);
+    drawMechanism(projView, base);
+
+}
+
+void Windmill::drawRoofAndRotor(glm::mat4& projView, glm::mat4 baseMat)
+{
+    baseMat = glm::translate(baseMat, glm::vec3(0.0f, 3.03f, 0.0f));
+    baseMat = glm::rotate(baseMat, roofAngle, glm::vec3(0.0f, 1.0f, 0.0f));
+
+    glm::mat4 mvp = projView * baseMat;
+    glUniformMatrix4fv(mvpUniformLocation, 1, GL_FALSE, glm::value_ptr(mvp));
+    roof_.draw();
+
+    glm::mat4 bladeBeam = glm::translate(baseMat, glm::vec3(0.0f, 0.25f, 0.7f));
+    mvp = projView * bladeBeam;
+    glUniformMatrix4fv(mvpUniformLocation, 1, GL_FALSE, glm::value_ptr(mvp));
+    bladebeam_.draw();
+
+    glm::mat4 rotorCenter = glm::translate(bladeBeam, glm::vec3(0.0f, 0.0f, 0.5f));
+    rotorCenter = glm::rotate(rotorCenter, rotorAngle, glm::vec3(0.0f, 0.0f, 1.0f));
+
+    drawBlades(projView, rotorCenter);
+}
+
+void Windmill::drawBlades(glm::mat4& projView, glm::mat4 rotorCenter)
+{
+    for (int i = 0; i < 4; ++i)
+    {
+        glm::mat4 bladeRoot = glm::rotate(rotorCenter, glm::radians(90.0f * i), glm::vec3(0.0f, 0.0f, 1.0f));
+        bladeRoot = glm::translate(bladeRoot, glm::vec3(0.0f, 0.13f, 0.0f));
+        glm::mat4 scaledRoot = glm::scale(bladeRoot, glm::vec3(0.5f));
+
+        glm::mat4 frameMat = glm::translate(scaledRoot, glm::vec3(0.0f, 2.38f, 0.0f));
+        frameMat = glm::rotate(frameMat, glm::radians(90.0f), glm::vec3(90.0f, 0.0f, 1.0f));
+
+        glm::mat4 mvpFrame = projView * frameMat;
+        glUniformMatrix4fv(mvpUniformLocation, 1, GL_FALSE, glm::value_ptr(mvpFrame));
+        bladeframe_.draw();
+
+        glm::mat4 bladeMat = glm::translate(scaledRoot, glm::vec3(-1.23f, 2.75f, 0.0f));
+        bladeMat = glm::rotate(bladeMat, glm::radians(-90.0f), glm::vec3(90.0f, 0.0f, 1.0f));
+
+        glm::mat4 mvpBlade = projView * bladeMat;
+        glUniformMatrix4fv(mvpUniformLocation, 1, GL_FALSE, glm::value_ptr(mvpBlade));
+        blade_.draw();
+    }
+}
+
+void Windmill::drawMechanism(glm::mat4& projView, glm::mat4 baseMat)
+{
+    glm::mat4 mainBeam = glm::rotate(baseMat, rotorAngle * 5.0f, glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 mvp = projView * mainBeam;
+    glUniformMatrix4fv(mvpUniformLocation, 1, GL_FALSE, glm::value_ptr(mvp));
+    mainbeam_.draw();
+
+    glm::mat4 millStone = glm::translate(mainBeam, glm::vec3(-0.48f, 0.15f, 0.0f));
+    millStone = glm::rotate(millStone, rotorAngle * 5.0f * 2.27f, glm::vec3(1.0f, 0.0f, 0.0f));
+    mvp = projView * millStone;
+    glUniformMatrix4fv(mvpUniformLocation, 1, GL_FALSE, glm::value_ptr(mvp));
+    millstone_.draw();
 }
     
 

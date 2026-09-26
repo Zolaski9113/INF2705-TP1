@@ -1,10 +1,7 @@
 #version 330 core
 
-// TODO: Définir les entrées et sorties pour donner une position
-//       et couleur à chaque vertex.
-
-layout(location = 0) in vec2 aPos;     // attribut 0, 2 floats
-layout(location = 1) in vec3 aRgb;    // ↔ attribut 1, 3 float
+layout(location = 0) in vec2 aPos;     // position (x, y)
+layout(location = 1) in vec3 aRgb;    // couleur (r, g, b)
 out vec4 laCouleur;
 
 void main(){

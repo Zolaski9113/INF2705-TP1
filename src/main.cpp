@@ -80,9 +80,6 @@ struct App : public OpenGLApplication
 
         // Initialisation de la couleur de fond.
         glClearColor(0.05f, 0.1f, 0.1f, 1.0f);
-        // TODO: Partie 2: Activez le test de profondeur (GL_DEPTH_TEST) et
-        //       l'élimination des faces arrières (GL_CULL_FACE).
-
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
 
@@ -94,26 +91,7 @@ struct App : public OpenGLApplication
         // Partie 2
         loadModels();
 
-        // TODO: Insérez les initialisations supplémentaires ici au besoin.
-
-        transformSP_ = glCreateProgram();
-        GLuint vsT = loadShaderObject(GL_VERTEX_SHADER, "./shaders/transform.vs.glsl");
-        GLuint fsT = loadShaderObject(GL_FRAGMENT_SHADER, "./shaders/transform.fs.glsl");
-
-        glAttachShader(transformSP_, vsT);
-        glAttachShader(transformSP_, fsT);
-        glLinkProgram(transformSP_);
-
-        glDetachShader(transformSP_, vsT);
-        glDetachShader(transformSP_, fsT);
-        glDeleteShader(vsT);
-        glDeleteShader(fsT);
-
-        checkProgramLinkingError("transform", transformSP_);
-
-        mvpUniformLocation_ = glGetUniformLocation(transformSP_, "mvp");
-        windmill_.mvpUniformLocation = mvpUniformLocation_;
-
+        // Calculé uniquement la première fois et aux redimentionnements
         projectionMatrix_ = getPerspectiveProjectionMatrix();
     }
 
@@ -150,7 +128,6 @@ struct App : public OpenGLApplication
     {
         // Nettoyage de la surface de dessin.
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        // TODO: Partie 2: Ajoutez le nettoyage du tampon de profondeur.
 
         ImGui::Begin("Scene Parameters");
         ImGui::Combo("Scene", &currentScene_, SCENE_NAMES, N_SCENE_NAMES);
@@ -170,7 +147,12 @@ struct App : public OpenGLApplication
     // Appelée lorsque la fenêtre se ferme.
     void onClose() override
     {
-        // TODO: Libérez les ressources allouées (buffers, shaders, etc.).
+        // Les modèles libèrent leurs propres ressources
+        glDeleteVertexArrays(1, &vao_);
+        glDeleteBuffers(1, &vbo_);
+        glDeleteBuffers(1, &ebo_);
+        glDeleteProgram(basicSP_);
+        glDeleteProgram(transformSP_);
     }
 
     // Appelée lors d'une touche de clavier.
@@ -205,6 +187,7 @@ struct App : public OpenGLApplication
 
     void onResize(const sf::Event::Resized &event) override
     {
+        projectionMatrix_ = getPerspectiveProjectionMatrix();
     }
 
     void onMouseMove(const sf::Event::MouseMoved &mouseDelta) override
@@ -277,24 +260,36 @@ struct App : public OpenGLApplication
 
     GLuint loadShaderObject(GLenum type, const char *path)
     {
-        // Créer les objets de shaders.
-        // shaderProgram = glCreateProgram(); --> mettre dans une autre méthode
         GLuint shader = glCreateShader(type);
 
-        // Lire et envoyer la source du nuanceur de sommets.
         std::string shaderSource = readFile(path);
         auto src = shaderSource.c_str();
         glShaderSource(shader, 1, &src, nullptr);
 
-        // Compiler et attacher le nuanceur de sommets.
         glCompileShader(shader);
-        // Vérifier qu'il n'y a pas d'erreurs de compilations
         checkShaderCompilingError(path, shader);
-        //       Utilisez readFile pour lire le fichier.
-        //       N'oubliez pas de vérifier les erreurs suite à la compilation
-        //       avec la méthode App::checkShaderCompilingError.
 
         return shader;
+    }
+
+    GLuint createShaderProgram(const char *name, const char *vertexPath, const char *fragmentPath)
+    {
+        GLuint program = glCreateProgram();
+        GLuint vs = loadShaderObject(GL_VERTEX_SHADER, vertexPath);
+        GLuint fs = loadShaderObject(GL_FRAGMENT_SHADER, fragmentPath);
+
+        glAttachShader(program, vs);
+        glAttachShader(program, fs);
+        glLinkProgram(program);
+        checkProgramLinkingError(name, program);
+
+        // Une fois le programme lié, retire les objets de shader
+        glDetachShader(program, vs);
+        glDetachShader(program, fs);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+
+        return program;
     }
 
     void loadShaderPrograms()
@@ -307,32 +302,18 @@ struct App : public OpenGLApplication
         const char *TRANSFORM_VERTEX_SRC_PATH = "./shaders/transform.vs.glsl";
         const char *TRANSFORM_FRAGMENT_SRC_PATH = "./shaders/transform.fs.glsl";
 
-        basicSP_ = glCreateProgram();
-        GLuint vs = loadShaderObject(GL_VERTEX_SHADER, BASIC_VERTEX_SRC_PATH);
-        GLuint fs = loadShaderObject(GL_FRAGMENT_SHADER, BASIC_FRAGMENT_SRC_PATH);
+        basicSP_ = createShaderProgram("basic", BASIC_VERTEX_SRC_PATH, BASIC_FRAGMENT_SRC_PATH);
+        transformSP_ = createShaderProgram("transform", TRANSFORM_VERTEX_SRC_PATH, TRANSFORM_FRAGMENT_SRC_PATH);
 
-        glAttachShader(basicSP_, vs);
-        glAttachShader(basicSP_, fs);
-
-        glLinkProgram(basicSP_);
-
-        glDetachShader(basicSP_, vs);
-        glDetachShader(basicSP_, fs);
-
-        glDeleteShader(vs);
-        glDeleteShader(fs);
-
-        checkProgramLinkingError("basic", basicSP_);
-
-        // TODO: Allez chercher les locations de vos variables uniform dans le shader
-        //       pour initialiser mvpUniformLocation_ et windmill_.mvpUniformLocation.
+        mvpUniformLocation_ = glGetUniformLocation(transformSP_, "mvp");
+        windmill_.mvpUniformLocation = mvpUniformLocation_;
     }
 
     void generateNgon()
     {
         const float RADIUS = 0.7f;
         float theta, r, g, b, x, y;
-        vertices_[0] = Sommet{ {0.0f, 0.0f}, glm::vec3(1.00f, 1.00f, 1.00f) };
+        vertices_[0] = Sommet{{0.0f, 0.0f}, glm::vec3(1.00f, 1.00f, 1.00f)};
 
         for (int i = 0; i < nSide_; i++)
         {
@@ -355,22 +336,20 @@ struct App : public OpenGLApplication
 
     void initShapeData()
     {
-        // Allocation du vbo avec taille maximale, pas de données cuz dynamic draw
+        // Allocation à la taille maximale sans données
         glGenBuffers(1, &vbo_);
         glBindBuffer(GL_ARRAY_BUFFER, vbo_);
         glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_), nullptr, GL_DYNAMIC_DRAW);
 
-        // Pareil ebo pour les indices
+        // Allocation pour les ebo
         glGenBuffers(1, &ebo_);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(elements_), nullptr, GL_DYNAMIC_DRAW);
 
-        // liaison du eao
+        // Description du format des sommets dans le vao.
         glGenVertexArrays(1, &vao_);
         glBindVertexArray(vao_);
 
-        // Format des données : les attributs sont entrelacés, donc le saut d'un
-        // sommet au suivant vaut sizeof(Sommet) pour les deux.
         glBindBuffer(GL_ARRAY_BUFFER, vbo_);
 
         glEnableVertexAttribArray(0);
@@ -418,13 +397,7 @@ struct App : public OpenGLApplication
 
     void drawGround(glm::mat4 &projView)
     {
-        // TODO: Dessin du sol.
-        //
-        //       Ici, le modèle original est un carré de 1 unité.
-        //
-        //       Le gazon a une mise à l'échelle pour être long de 50
-        //       unités et large de 50. Celui-ci doit aussi être légèrement
-        //       baisé de 0.1.
+        // Carré unitaire agrandi à 50 x 50 et abaissé de 0.1.
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(0.0f, -0.1f, 0.0f));
         model = glm::scale(model, glm::vec3(50.0f, 1.0f, 50.0f));
@@ -438,18 +411,7 @@ struct App : public OpenGLApplication
 
     glm::mat4 getViewMatrix()
     {
-        // TODO: Calculer la matrice de vue.
-        //
-        //       Vous n'avez pas le droit d'utiliser de fonction lookAt ou
-        //       d'inversion de matrice. À la place, procéder en inversant
-        //       les opérations. N'oubliez pas que cette matrice est appliquée
-        //       aux éléments de la scène. Au lieu de déplacer la caméra 10
-        //       unités vers la gauche, on déplace le monde 10 unités vers la
-        //       droite, ce qui donne le même résultat final.
-        //
-        //       La caméra est placée à la position cameraPosition et orientée
-        //       par les angles cameraOrientation (en radian).
-
+        // La vue est l'inverse de la caméra
         glm::mat4 view = glm::mat4(1.0f);
 
         view = glm::rotate(view, -cameraOrientation_.x, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -461,15 +423,7 @@ struct App : public OpenGLApplication
 
     glm::mat4 getPerspectiveProjectionMatrix()
     {
-        // TODO: Calculer la matrice de projection.
-        //
-        //       Celle-ci aura un fov de 70 degrés, un near à 0.1 et un far à 300.
-        //
-
-        // getWindowAspect();
-        
         return glm::perspective(glm::radians(70.0f), getWindowAspect(), 0.1f, 300.0f);
-
     }
 
     void sceneModels()
@@ -482,14 +436,10 @@ struct App : public OpenGLApplication
         updateCameraInput();
         windmill_.update(deltaTime_);
 
-        // TODO: Dessin de la totalité de la scène graphique.
-        //       On devrait voir le gazon et le moulin.
-        //       Le moulin est contrôlable avec l'interface graphique.
         glUseProgram(transformSP_);
 
-        glm::mat4 proj = projectionMatrix_;
-        glm::mat4 view = getViewMatrix();
-        glm::mat4 projView = proj * view;
+        // Produit projection * vue calculé UNE SEULE FOIS par trame, puis réutilisé
+        glm::mat4 projView = projectionMatrix_ * getViewMatrix();
 
         drawGround(projView);
         windmill_.draw(projView);

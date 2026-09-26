@@ -2,8 +2,9 @@
 build/
 out/
 
-# Éditeur / IDE
+# Éditeur / IDE / macOS
 .vscode/
+.DS_Store
 .vs/
 *.sln
 *.vcxproj

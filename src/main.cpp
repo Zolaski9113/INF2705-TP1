@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -14,12 +15,15 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "happly.h"
 #include <imgui/imgui.h>
 
 #include <inf2705/OpenGLApplication.hpp>
 
 #include "model.hpp"
+#include "model_data.hpp"
+#include "shaders.hpp"
+#include "textures.hpp"
+#include "uniform_buffer.hpp"
 #include "windmill.hpp"
 
 #define CHECK_GL_ERROR printGLError(__FILE__, __LINE__)
@@ -27,25 +31,69 @@
 using namespace gl;
 using namespace glm;
 
-struct Position
+
+// Définition des structures pour la communication avec le shader. NE PAS MODIFIER.
+
+struct Material
 {
-    float x;
-    float y;
+    glm::vec4 emission; // vec3, but padded
+    glm::vec4 ambient;  // vec3, but padded
+    glm::vec4 diffuse;  // vec3, but padded
+    glm::vec3 specular;
+    GLfloat shininess;
 };
-struct Couleur
+
+struct DirectionalLight
 {
-    vec3 coul;
+    glm::vec4 ambient;   // vec3, but padded
+    glm::vec4 diffuse;   // vec3, but padded
+    glm::vec4 specular;  // vec3, but padded
+    glm::vec4 direction; // vec3, but padded
 };
-struct Sommet
+
+struct SpotLight
 {
-    Position pos;
-    Couleur couleur;
+    glm::vec4 ambient;   // vec3, but padded
+    glm::vec4 diffuse;   // vec3, but padded
+    glm::vec4 specular;  // vec3, but padded
+
+    glm::vec4 position;  // vec3, but padded
+    glm::vec3 direction;
+    GLfloat exponent;
+    GLfloat openingAngle;
+
+    GLfloat padding[3];
 };
+
+// Matériels
+
+Material defaultMat =
+{
+    {0.0f, 0.0f, 0.0f, 0.0f},
+    {1.0f, 1.0f, 1.0f, 0.0f},
+    {1.0f, 1.0f, 1.0f, 0.0f},
+    {0.7f, 0.7f, 0.7f},
+    10.0f
+};
+
+Material grassMat =
+{
+    {0.0f, 0.0f, 0.0f, 0.0f},
+    {0.8f, 0.8f, 0.8f, 0.0f},
+    {1.0f, 1.0f, 1.0f, 0.0f},
+    {0.05f, 0.05f, 0.05f},
+    100.0f
+};
+
 
 struct App : public OpenGLApplication
 {
     App()
-        : nSide_(5), oldNSide_(0), cameraPosition_(0.f, 0.f, 0.f), cameraOrientation_(0.f, 0.f), currentScene_(0), isMouseMotionEnabled_(false)
+        : isDay_(true)
+        , cameraPosition_(0.f, 0.f, 0.f)
+        , cameraOrientation_(0.f, 0.f)
+        , currentScene_(0)
+        , isMouseMotionEnabled_(false)
     {
     }
 
@@ -83,76 +131,118 @@ struct App : public OpenGLApplication
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
 
-        loadShaderPrograms();
-
         // Partie 1
-        initShapeData();
 
-        // Partie 2
+        // Création des shaders program (compilation et liaison).
+        edgeEffectShader_.create();
+        phongShadingShader_.create();
+        skyShader_.create();
+
+        windmill_.phongShadingShader = &phongShadingShader_;
+
+
+        // TODO: Chargement des textures, ainsi que la configuration de leurs paramètres.
+        //
+        //       Le mipmap __ne doit pas__ être activé pour toutes les textures.
+        //
+
+        // TODO: Chargement des textures des deux skyboxes.
+
+        const char* pathes[] = {
+            "../textures/skybox/Daylight Box_Right.bmp",
+            "../textures/skybox/Daylight Box_Left.bmp",
+            "../textures/skybox/Daylight Box_Top.bmp",
+            "../textures/skybox/Daylight Box_Bottom.bmp",
+            "../textures/skybox/Daylight Box_Front.bmp",
+            "../textures/skybox/Daylight Box_Back.bmp",
+        };
+
+        const char* nightPathes[] = {
+            "../textures/skyboxNight/right.png",
+            "../textures/skyboxNight/left.png",
+            "../textures/skyboxNight/top.png",
+            "../textures/skyboxNight/bottom.png",
+            "../textures/skyboxNight/front.png",
+            "../textures/skyboxNight/back.png",
+        };
+
         loadModels();
+
+        // Partie 3
+
+        material_.allocate(&defaultMat, sizeof(Material));
+        material_.setBindingIndex(0);
+
+        lightsData_.dirLight =
+        {
+            {0.2f, 0.2f, 0.2f, 0.0f},
+            {1.0f, 1.0f, 1.0f, 0.0f},
+            {0.5f, 0.5f, 0.5f, 0.0f},
+            {0.5f, -1.0f, 0.5f, 0.0f}
+        };
+
+
+        // Initialisation des paramètres de lumière
+
+        lightsData_.spotLights[0].position = glm::vec4(-1.6, 0.64, -0.45, 0.0f);
+        lightsData_.spotLights[0].direction = glm::vec3(-10, -1, 0);
+        lightsData_.spotLights[0].exponent = 4.0f;
+        lightsData_.spotLights[0].openingAngle = 30.f;
+
+        lightsData_.spotLights[1].position = glm::vec4(-1.6, 0.64, 0.45, 0.0f);
+        lightsData_.spotLights[1].direction = glm::vec3(-10, -1, 0);
+        lightsData_.spotLights[1].exponent = 4.0f;
+        lightsData_.spotLights[1].openingAngle = 30.f;
+
+        lightsData_.spotLights[2].position = glm::vec4(1.6, 0.64, -0.45, 0.0f);
+        lightsData_.spotLights[2].direction = glm::vec3(10, -1, 0);
+        lightsData_.spotLights[2].exponent = 4.0f;
+        lightsData_.spotLights[2].openingAngle = 60.f;
+
+        toggleSpotlights();
+
+        setLightingUniform();
+
+        lights_.allocate(&lightsData_, sizeof(lightsData_));
+        lights_.setBindingIndex(1);
 
         // Calculé uniquement la première fois et aux redimentionnements
         projectionMatrix_ = getPerspectiveProjectionMatrix();
+
+        CHECK_GL_ERROR;
     }
 
-    void checkShaderCompilingError(const char *name, GLuint id)
-    {
-        GLint success;
-        GLchar infoLog[1024];
-
-        glGetShaderiv(id, GL_COMPILE_STATUS, &success);
-        if (!success)
-        {
-            glGetShaderInfoLog(id, 1024, NULL, infoLog);
-            glDeleteShader(id);
-            std::cout << "Shader \"" << name << "\" compile error: " << infoLog << std::endl;
-        }
-    }
-
-    void checkProgramLinkingError(const char *name, GLuint id)
-    {
-        GLint success;
-        GLchar infoLog[1024];
-
-        glGetProgramiv(id, GL_LINK_STATUS, &success);
-        if (!success)
-        {
-            glGetProgramInfoLog(id, 1024, NULL, infoLog);
-            glDeleteProgram(id);
-            std::cout << "Program \"" << name << "\" linking error: " << infoLog << std::endl;
-        }
-    }
 
     // Appelée à chaque trame. Le buffer swap est fait juste après.
     void drawFrame() override
     {
-        // Nettoyage de la surface de dessin.
+        CHECK_GL_ERROR;
+        // TODO: Partie 2: Ajouter le nettoyage du tampon de stencil
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         ImGui::Begin("Scene Parameters");
         ImGui::Combo("Scene", &currentScene_, SCENE_NAMES, N_SCENE_NAMES);
+
+        // Et oui, il est désormais possible de recharger les shaders en gardant l'application ouvert.
+        if (ImGui::Button("Reload Shaders"))
+        {
+            CHECK_GL_ERROR;
+            edgeEffectShader_.reload();
+            phongShadingShader_.reload();
+            skyShader_.reload();
+
+            setLightingUniform();
+            CHECK_GL_ERROR;
+        }
         ImGui::End();
 
         switch (currentScene_)
         {
         case 0:
-            sceneShape();
-            break;
-        case 1:
-            sceneModels();
+            sceneMain();
             break;
         }
-    }
-
-    // Appelée lorsque la fenêtre se ferme.
-    void onClose() override
-    {
-        // Les modèles libèrent leurs propres ressources
-        glDeleteVertexArrays(1, &vao_);
-        glDeleteBuffers(1, &vbo_);
-        glDeleteBuffers(1, &ebo_);
-        glDeleteProgram(basicSP_);
-        glDeleteProgram(transformSP_);
+        CHECK_GL_ERROR;
     }
 
     // Appelée lors d'une touche de clavier.
@@ -255,147 +345,63 @@ struct App : public OpenGLApplication
     void loadModels()
     {
         windmill_.loadModels();
-        grass_.load("../models/grass.ply");
+        fence_.load("../models/fence.ply");
+        spotlight_.load("../models/spotlight.ply");
+        skybox_.load("../models/skybox.ply");
+
+        grass_.load(ground, sizeof(ground), planeElements, sizeof(planeElements));
     }
 
-    GLuint loadShaderObject(GLenum type, const char *path)
+    // TODO: À modifier, ajouter les textures, et l'effet de contour.
+    void drawFences(glm::mat4& projView, glm::mat4& view)
     {
-        GLuint shader = glCreateShader(type);
-
-        std::string shaderSource = readFile(path);
-        auto src = shaderSource.c_str();
-        glShaderSource(shader, 1, &src, nullptr);
-
-        glCompileShader(shader);
-        checkShaderCompilingError(path, shader);
-
-        return shader;
-    }
-
-    GLuint createShaderProgram(const char *name, const char *vertexPath, const char *fragmentPath)
-    {
-        GLuint program = glCreateProgram();
-        GLuint vs = loadShaderObject(GL_VERTEX_SHADER, vertexPath);
-        GLuint fs = loadShaderObject(GL_FRAGMENT_SHADER, fragmentPath);
-
-        glAttachShader(program, vs);
-        glAttachShader(program, fs);
-        glLinkProgram(program);
-        checkProgramLinkingError(name, program);
-
-        // Une fois le programme lié, retire les objets de shader
-        glDetachShader(program, vs);
-        glDetachShader(program, fs);
-        glDeleteShader(vs);
-        glDeleteShader(fs);
-
-        return program;
-    }
-
-    void loadShaderPrograms()
-    {
-        // Partie 1
-        const char *BASIC_VERTEX_SRC_PATH = "./shaders/basic.vs.glsl";
-        const char *BASIC_FRAGMENT_SRC_PATH = "./shaders/basic.fs.glsl";
-
-        // Partie 2
-        const char *TRANSFORM_VERTEX_SRC_PATH = "./shaders/transform.vs.glsl";
-        const char *TRANSFORM_FRAGMENT_SRC_PATH = "./shaders/transform.fs.glsl";
-
-        basicSP_ = createShaderProgram("basic", BASIC_VERTEX_SRC_PATH, BASIC_FRAGMENT_SRC_PATH);
-        transformSP_ = createShaderProgram("transform", TRANSFORM_VERTEX_SRC_PATH, TRANSFORM_FRAGMENT_SRC_PATH);
-
-        mvpUniformLocation_ = glGetUniformLocation(transformSP_, "mvp");
-        windmill_.mvpUniformLocation = mvpUniformLocation_;
-    }
-
-    void generateNgon()
-    {
-        const float RADIUS = 0.7f;
-        float theta, r, g, b, x, y;
-        vertices_[0] = Sommet{{0.0f, 0.0f}, glm::vec3(1.00f, 1.00f, 1.00f)};
-
-        for (int i = 0; i < nSide_; i++)
+        const glm::vec3 FENCES_POSITIONS[] =
         {
-            theta = glm::half_pi<float>() + glm::two_pi<float>() * i / nSide_;
-            float t = (float)i / nSide_;
+            // TODO: Ajouter vos positions de clôture ici.
+            //       Devrait permettre de mettre une cloture qui entoure le moulin.
+            //       _______
+            //       |     |
+            //       |  M  |
+            //       | | | |
+            //       |_| |_|
+        };
 
-            x = RADIUS * std::cos(theta);
-            y = RADIUS * std::sin(theta);
-            r = 0.5f + 0.5f * std::cos(glm::two_pi<float>() * (t));
-            g = 0.5f + 0.5f * std::cos(glm::two_pi<float>() * (t - 1.0f / 3));
-            b = 0.5f + 0.5f * std::cos(glm::two_pi<float>() * (t - 2.0f / 3));
-
-            vertices_[i + 1] = Sommet{{x, y}, glm::vec3(r, g, b)};
-
-            elements_[3 * i] = 0;
-            elements_[3 * i + 1] = i + 1;
-            elements_[3 * i + 2] = (i + 1) % nSide_ + 1;
-        }
-    }
-
-    void initShapeData()
-    {
-        // Allocation à la taille maximale sans données
-        glGenBuffers(1, &vbo_);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_), nullptr, GL_DYNAMIC_DRAW);
-
-        // Allocation pour les ebo
-        glGenBuffers(1, &ebo_);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(elements_), nullptr, GL_DYNAMIC_DRAW);
-
-        // Description du format des sommets dans le vao.
-        glGenVertexArrays(1, &vao_);
-        glBindVertexArray(vao_);
-
-        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Sommet),
-                              (const void *)offsetof(Sommet, pos));
-
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Sommet),
-                              (const void *)offsetof(Sommet, couleur));
-
-        // La liaison du ebo fait partie de l'état du vao.
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
-
-        // Délier le vao en premier
-        glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    }
-
-    void sceneShape()
-    {
-        ImGui::Begin("Scene Parameters");
-        ImGui::SliderInt("Sides", &nSide_, MIN_N_SIDES, MAX_N_SIDES);
-        ImGui::End();
-
-        bool hasNumberOfSidesChanged = nSide_ != oldNSide_;
-        if (hasNumberOfSidesChanged)
+        const float FENCES_ANGLES[] =
         {
-            oldNSide_ = nSide_;
-            generateNgon();
+            // TODO: Ajouter vos angles de clôture ici.
+        };
 
-            glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, (nSide_ + 1) * sizeof(Sommet), vertices_);
+        // TODO: À ajouter et compléter.
+        //       Dessiner les clôtures. Celles-ci ont une texture transparente,
+        //       il est donc nécessaire d'activer le mélange des couleurs (GL_BLEND).
+        //       De plus, vous devez dessiner les clôtures du plus loin vers le plus proche
+        //       pour éviter les problèmes de mélange.
+        //       Utiliser un map avec la distance en clef pour les trier (les maps trient
+        //       à l'insertion).
+        //       Les clôtures doivent être visibles des deux sens.
+        //       Il est important de restaurer l'état du contexte qui a été modifié à la fin de la méthode.
 
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
-            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, 3 * nSide_ * sizeof(GLuint), elements_);
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        constexpr unsigned int N_FENCES = 0;
+        std::map<float, unsigned int> sorted;
+        for (unsigned int i = 0; i < N_FENCES; i++)
+        {
+            // TODO: Calcul de la distance par rapport à l'observateur (utiliser la matrice de vue!)
+            //       et faite une insertion dans le map
         }
 
-        glUseProgram(basicSP_);
-        glBindVertexArray(vao_);
-        glDrawElements(GL_TRIANGLES, 3 * nSide_, GL_UNSIGNED_INT, 0);
-        glBindVertexArray(0);
+        // TODO: Itération à l'inverse (de la plus grande distance jusqu'à la plus petit)
+        for (std::map<float, unsigned int>::reverse_iterator it = sorted.rbegin(); it != sorted.rend(); ++it)
+        {
+            // TODO: Dessin des clôtures
+
+            // TODO: Partie 2, pour l'effet de contour, il faut agrandir l'objet à partir de la
+            //       base du model (origine placé à y=0.5, sur le haut de la clôture)
+        }
+
     }
 
-    void drawGround(glm::mat4 &projView)
+    // TODO: À modifier, ajouter les textures
+    void drawGround(glm::mat4& projView, glm::mat4& view)
     {
         // Carré unitaire agrandi à 50 x 50 et abaissé de 0.1.
         glm::mat4 model = glm::mat4(1.0f);
@@ -404,7 +410,8 @@ struct App : public OpenGLApplication
 
         glm::mat4 mvp = projView * model;
 
-        glUniformMatrix4fv(mvpUniformLocation_, 1, GL_FALSE, glm::value_ptr(mvp));
+        setMaterial(grassMat);
+        phongShadingShader_.setMatrices(mvp, view, model);
 
         grass_.draw();
     }
@@ -426,9 +433,70 @@ struct App : public OpenGLApplication
         return glm::perspective(glm::radians(70.0f), getWindowAspect(), 0.1f, 300.0f);
     }
 
-    void sceneModels()
+    void setLightingUniform()
+    {
+        phongShadingShader_.use();
+        glUniform1i(phongShadingShader_.nSpotLightsULoc, 3);
+
+        float ambientIntensity = 0.05;
+        glUniform3f(phongShadingShader_.globalAmbientULoc, ambientIntensity, ambientIntensity, ambientIntensity);
+    }
+
+    void toggleSun()
+    {
+        if (isDay_)
+        {
+            lightsData_.dirLight.ambient = glm::vec4(0.2f, 0.2f, 0.2f, 0.0f);
+            lightsData_.dirLight.diffuse = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+            lightsData_.dirLight.specular = glm::vec4(0.5f, 0.5f, 0.5f, 0.0f);
+        }
+        else
+        {
+            lightsData_.dirLight.ambient = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+            lightsData_.dirLight.diffuse = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+            lightsData_.dirLight.specular = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+        }
+    }
+
+    void toggleSpotlights()
+    {
+        if (isDay_)
+        {
+            for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
+            {
+                lightsData_.spotLights[i].ambient = glm::vec4(glm::vec3(0.0f), 0.0f);
+                lightsData_.spotLights[i].diffuse = glm::vec4(glm::vec3(0.0f), 0.0f);
+                lightsData_.spotLights[i].specular = glm::vec4(glm::vec3(0.0f), 0.0f);
+            }
+        }
+        else
+        {
+            for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
+            {
+                lightsData_.spotLights[i].ambient = glm::vec4(glm::vec3(0.02f), 0.0f);
+                lightsData_.spotLights[i].diffuse = glm::vec4(glm::vec3(0.8f), 0.0f);
+                lightsData_.spotLights[i].specular = glm::vec4(glm::vec3(0.4f), 0.0f);
+            }
+        }
+    }
+
+    void setMaterial(Material& mat)
+    {
+        material_.updateData(&mat, 0, sizeof(Material));
+    }
+
+    // TODO: À ajouter et modifier.
+    //       Ajouter les textures, les skyboxes, etc.
+    void sceneMain()
     {
         ImGui::Begin("Scene Parameters");
+        if (ImGui::Button("Toggle Day/Night"))
+        {
+            isDay_ = !isDay_;
+            toggleSun();
+            toggleSpotlights();
+            lights_.updateData(&lightsData_, 0, sizeof(DirectionalLight) + N_SPOTLIGHTS * sizeof(SpotLight));
+        }
         ImGui::SliderFloat("Wind Speed", &windmill_.windSpeed, 0.0f, 20.0f, "%.2f m/s");
         ImGui::SliderFloat("Wind Angle", &windmill_.windAngle, -M_PI, M_PI, "%.2f°");
         ImGui::End();
@@ -436,46 +504,65 @@ struct App : public OpenGLApplication
         updateCameraInput();
         windmill_.update(deltaTime_);
 
-        glUseProgram(transformSP_);
+        glm::mat4 view = getViewMatrix();
 
         // Produit projection * vue calculé UNE SEULE FOIS par trame, puis réutilisé
-        glm::mat4 projView = projectionMatrix_ * getViewMatrix();
+        glm::mat4 projView = projectionMatrix_ * view;
 
-        drawGround(projView);
-        windmill_.draw(projView);
+        phongShadingShader_.use();
+        setMaterial(defaultMat);
 
-        glUseProgram(0);
+        windmill_.draw(projView, view);
+        drawGround(projView, view);
+
+        // Penser à votre ordre de dessin, les todos sont volontairement mélangés ici.
+
+        // TODO: Dessin des clôtures
+
+        // TODO: Dessin du skybox
+
+        // TODO: Dessin des spotlights
     }
 
 private:
     // Shaders
-    GLuint basicSP_;
-    GLuint transformSP_;
-    GLuint mvpUniformLocation_;
+    EdgeEffect edgeEffectShader_;
+    PhongShading phongShadingShader_;
+    Sky skyShader_;
 
-    // Partie 1
-    GLuint vbo_, ebo_, vao_;
+    // Textures
+    Texture2D grassTexture_;
+    Texture2D fenceTexture_;
+    Texture2D windmillTexture_;
+    TextureCubeMap skyboxTexture_;
+    TextureCubeMap skyboxNightTexture_;
 
-    static constexpr unsigned int MIN_N_SIDES = 5;
-    static constexpr unsigned int MAX_N_SIDES = 12;
+    // Uniform buffers
+    UniformBuffer material_;
+    UniformBuffer lights_;
 
-    Sommet vertices_[MAX_N_SIDES + 1];
-    GLuint elements_[MAX_N_SIDES * 3];
+    struct {
+        DirectionalLight dirLight;
+        SpotLight spotLights[8];
+    } lightsData_;
 
-    int nSide_, oldNSide_;
+    bool isDay_;
 
-    // Partie 2
     Model grass_;
+    Model fence_;
+    Model spotlight_;
+    Model skybox_;
 
     Windmill windmill_;
 
     glm::vec3 cameraPosition_;
     glm::vec2 cameraOrientation_;
 
+    static constexpr unsigned int N_SPOTLIGHTS = 3;
+
     // Imgui var
-    const char *const SCENE_NAMES[2] = {
-        "Introduction",
-        "3D Model & transformation",
+    const char* const SCENE_NAMES[1] = {
+        "Main scene"
     };
     const int N_SCENE_NAMES = sizeof(SCENE_NAMES) / sizeof(SCENE_NAMES[0]);
     int currentScene_;
@@ -483,6 +570,7 @@ private:
     bool isMouseMotionEnabled_;
     glm::mat4 projectionMatrix_;
 };
+
 
 int main(int argc, char *argv[])
 {
@@ -496,5 +584,5 @@ int main(int argc, char *argv[])
     settings.context.attributeFlags = sf::ContextSettings::Attribute::Core;
 
     App app;
-    app.run(argc, argv, "Tp1", settings);
+    app.run(argc, argv, "Tp2", settings);
 }

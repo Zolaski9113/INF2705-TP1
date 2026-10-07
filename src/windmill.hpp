@@ -5,6 +5,8 @@
 
 #include "model.hpp"
 
+class PhongShading;
+
 class Windmill
 {
 public:
@@ -14,13 +16,13 @@ public:
 
     void update(float deltaTime);
 
-    void draw(glm::mat4 &projView);
+    void draw(glm::mat4 &projView, glm::mat4 &view);
 
 private:
     // La matrice parente passée par copie
-    void drawRoofAndRotor(glm::mat4 &projView, glm::mat4 baseMat);
-    void drawBlades(glm::mat4 &projView, glm::mat4 rotorCenter);
-    void drawMechanism(glm::mat4 &projView, glm::mat4 baseMat);
+    void drawRoofAndRotor(glm::mat4 &projView, glm::mat4 &view, glm::mat4 baseMat);
+    void drawBlades(glm::mat4 &projView, glm::mat4 &view, glm::mat4 rotorCenter);
+    void drawMechanism(glm::mat4 &projView, glm::mat4 &view, glm::mat4 baseMat);
 
 private:
     Model blade_;
@@ -40,5 +42,5 @@ public:
 
     float roofAngle;
 
-    GLuint mvpUniformLocation;
+    PhongShading* phongShadingShader;
 };

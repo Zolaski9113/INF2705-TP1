@@ -11,6 +11,10 @@ set(ALL_FILES
     "main.cpp"
     "model.cpp"
     "windmill.cpp"
+    "textures.cpp"
+    "shaders.cpp"
+    "shader_program.cpp"
+    "uniform_buffer.cpp"
     # "../inf2705/Mesh.hpp"
     "../inf2705/OpenGLApplication.hpp"
     # "../inf2705/OrbitCamera.hpp"
@@ -28,7 +32,12 @@ set(ALL_FILES
 )
 add_executable(${PROJECT_NAME} ${ALL_FILES})
 
+# stb_image.h (inclus dans textures.cpp) est aussi embarqué dans SFML (liée statiquement avec vcpkg).
+# STB_IMAGE_STATIC rend les symboles stbi_* internes à textures.cpp et évite les symboles dupliqués à l'édition de liens.
+set_source_files_properties("textures.cpp" PROPERTIES COMPILE_DEFINITIONS STB_IMAGE_STATIC)
+
 include_directories("../")
+include_directories("../inf2705")
 
 # Les flags de compilation.
 if (WIN32)

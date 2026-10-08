@@ -31,7 +31,6 @@
 using namespace gl;
 using namespace glm;
 
-
 // Définition des structures pour la communication avec le shader. NE PAS MODIFIER.
 
 struct Material
@@ -53,11 +52,11 @@ struct DirectionalLight
 
 struct SpotLight
 {
-    glm::vec4 ambient;   // vec3, but padded
-    glm::vec4 diffuse;   // vec3, but padded
-    glm::vec4 specular;  // vec3, but padded
+    glm::vec4 ambient;  // vec3, but padded
+    glm::vec4 diffuse;  // vec3, but padded
+    glm::vec4 specular; // vec3, but padded
 
-    glm::vec4 position;  // vec3, but padded
+    glm::vec4 position; // vec3, but padded
     glm::vec3 direction;
     GLfloat exponent;
     GLfloat openingAngle;
@@ -68,32 +67,25 @@ struct SpotLight
 // Matériels
 
 Material defaultMat =
-{
-    {0.0f, 0.0f, 0.0f, 0.0f},
-    {1.0f, 1.0f, 1.0f, 0.0f},
-    {1.0f, 1.0f, 1.0f, 0.0f},
-    {0.7f, 0.7f, 0.7f},
-    10.0f
-};
+    {
+        {0.0f, 0.0f, 0.0f, 0.0f},
+        {1.0f, 1.0f, 1.0f, 0.0f},
+        {1.0f, 1.0f, 1.0f, 0.0f},
+        {0.7f, 0.7f, 0.7f},
+        10.0f};
 
 Material grassMat =
-{
-    {0.0f, 0.0f, 0.0f, 0.0f},
-    {0.8f, 0.8f, 0.8f, 0.0f},
-    {1.0f, 1.0f, 1.0f, 0.0f},
-    {0.05f, 0.05f, 0.05f},
-    100.0f
-};
-
+    {
+        {0.0f, 0.0f, 0.0f, 0.0f},
+        {0.8f, 0.8f, 0.8f, 0.0f},
+        {1.0f, 1.0f, 1.0f, 0.0f},
+        {0.05f, 0.05f, 0.05f},
+        100.0f};
 
 struct App : public OpenGLApplication
 {
     App()
-        : isDay_(true)
-        , cameraPosition_(0.f, 0.f, 0.f)
-        , cameraOrientation_(0.f, 0.f)
-        , currentScene_(0)
-        , isMouseMotionEnabled_(false)
+        : isDay_(true), cameraPosition_(0.f, 0.f, 0.f), cameraOrientation_(0.f, 0.f), currentScene_(0), isMouseMotionEnabled_(false)
     {
     }
 
@@ -140,15 +132,23 @@ struct App : public OpenGLApplication
 
         windmill_.phongShadingShader = &phongShadingShader_;
 
+        // Chargement  différentes textures
+        grassTexture_.load("../textures/grass.jpg");
+        grassTexture_.setFiltering(GL_LINEAR);
+        grassTexture_.setWrap(GL_REPEAT);
+        grassTexture_.enableMipmap();
 
-        // TODO: Chargement des textures, ainsi que la configuration de leurs paramètres.
-        //
-        //       Le mipmap __ne doit pas__ être activé pour toutes les textures.
-        //
+        fenceTexture_.load("../textures/fence.jpg");
+        fenceTexture_.setFiltering(GL_NEAREST);
+        fenceTexture_.setWrap(GL_REPEAT);
 
-        // TODO: Chargement des textures des deux skyboxes.
+        windmillTexture_.load("../textures/windmill.jpg");
+        windmillTexture_.setFiltering(GL_LINEAR);
+        windmillTexture_.setWrap(GL_CLAMP_TO_EDGE);
+        windmillTexture_.enableMipmap();
 
-        const char* pathes[] = {
+        // Chargement des textures des skybox
+        const char *pathes[] = {
             "../textures/skybox/Daylight Box_Right.bmp",
             "../textures/skybox/Daylight Box_Left.bmp",
             "../textures/skybox/Daylight Box_Top.bmp",
@@ -157,7 +157,7 @@ struct App : public OpenGLApplication
             "../textures/skybox/Daylight Box_Back.bmp",
         };
 
-        const char* nightPathes[] = {
+        const char *nightPathes[] = {
             "../textures/skyboxNight/right.png",
             "../textures/skyboxNight/left.png",
             "../textures/skyboxNight/top.png",
@@ -165,6 +165,9 @@ struct App : public OpenGLApplication
             "../textures/skyboxNight/front.png",
             "../textures/skyboxNight/back.png",
         };
+
+        skyboxTexture_.load(pathes);
+        skyboxNightTexture_.load(nightPathes);
 
         loadModels();
 
@@ -174,13 +177,11 @@ struct App : public OpenGLApplication
         material_.setBindingIndex(0);
 
         lightsData_.dirLight =
-        {
-            {0.2f, 0.2f, 0.2f, 0.0f},
-            {1.0f, 1.0f, 1.0f, 0.0f},
-            {0.5f, 0.5f, 0.5f, 0.0f},
-            {0.5f, -1.0f, 0.5f, 0.0f}
-        };
-
+            {
+                {0.2f, 0.2f, 0.2f, 0.0f},
+                {1.0f, 1.0f, 1.0f, 0.0f},
+                {0.5f, 0.5f, 0.5f, 0.0f},
+                {0.5f, -1.0f, 0.5f, 0.0f}};
 
         // Initialisation des paramètres de lumière
 
@@ -211,7 +212,6 @@ struct App : public OpenGLApplication
 
         CHECK_GL_ERROR;
     }
-
 
     // Appelée à chaque trame. Le buffer swap est fait juste après.
     void drawFrame() override
@@ -353,22 +353,22 @@ struct App : public OpenGLApplication
     }
 
     // TODO: À modifier, ajouter les textures, et l'effet de contour.
-    void drawFences(glm::mat4& projView, glm::mat4& view)
+    void drawFences(glm::mat4 &projView, glm::mat4 &view)
     {
         const glm::vec3 FENCES_POSITIONS[] =
-        {
-            // TODO: Ajouter vos positions de clôture ici.
-            //       Devrait permettre de mettre une cloture qui entoure le moulin.
-            //       _______
-            //       |     |
-            //       |  M  |
-            //       | | | |
-            //       |_| |_|
+            {
+                // TODO: Ajouter vos positions de clôture ici.
+                //       Devrait permettre de mettre une cloture qui entoure le moulin.
+                //       _______
+                //       |     |
+                //       |  M  |
+                //       | | | |
+                //       |_| |_|
         };
 
         const float FENCES_ANGLES[] =
-        {
-            // TODO: Ajouter vos angles de clôture ici.
+            {
+                // TODO: Ajouter vos angles de clôture ici.
         };
 
         // TODO: À ajouter et compléter.
@@ -397,11 +397,10 @@ struct App : public OpenGLApplication
             // TODO: Partie 2, pour l'effet de contour, il faut agrandir l'objet à partir de la
             //       base du model (origine placé à y=0.5, sur le haut de la clôture)
         }
-
     }
 
     // TODO: À modifier, ajouter les textures
-    void drawGround(glm::mat4& projView, glm::mat4& view)
+    void drawGround(glm::mat4 &projView, glm::mat4 &view)
     {
         // Carré unitaire agrandi à 50 x 50 et abaissé de 0.1.
         glm::mat4 model = glm::mat4(1.0f);
@@ -480,7 +479,7 @@ struct App : public OpenGLApplication
         }
     }
 
-    void setMaterial(Material& mat)
+    void setMaterial(Material &mat)
     {
         material_.updateData(&mat, 0, sizeof(Material));
     }
@@ -541,7 +540,8 @@ private:
     UniformBuffer material_;
     UniformBuffer lights_;
 
-    struct {
+    struct
+    {
         DirectionalLight dirLight;
         SpotLight spotLights[8];
     } lightsData_;
@@ -561,16 +561,14 @@ private:
     static constexpr unsigned int N_SPOTLIGHTS = 3;
 
     // Imgui var
-    const char* const SCENE_NAMES[1] = {
-        "Main scene"
-    };
+    const char *const SCENE_NAMES[1] = {
+        "Main scene"};
     const int N_SCENE_NAMES = sizeof(SCENE_NAMES) / sizeof(SCENE_NAMES[0]);
     int currentScene_;
 
     bool isMouseMotionEnabled_;
     glm::mat4 projectionMatrix_;
 };
-
 
 int main(int argc, char *argv[])
 {

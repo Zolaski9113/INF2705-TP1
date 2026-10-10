@@ -513,13 +513,27 @@ struct App : public OpenGLApplication
 
         windmillTexture_.use();
         windmill_.draw(projView, view);
+
         drawGround(projView, view);
 
         // Penser à votre ordre de dessin, les todos sont volontairement mélangés ici.
+        // Dessin du skybox
+        skyShader_.use();
+
+        glm::mat4 skyMvp = projectionMatrix_ * glm::mat4(glm::mat3(view));
+        glUniformMatrix4fv(skyShader_.mvpULoc, 1, GL_FALSE, glm::value_ptr(skyMvp));
+
+        if (isDay_)
+            skyboxTexture_.use();
+        else
+            skyboxNightTexture_.use();
+
+        glDepthFunc(GL_LEQUAL);
+        skybox_.draw();
+        glDepthFunc(GL_LESS);
+        phongShadingShader_.use();
 
         // TODO: Dessin des clôtures
-
-        // TODO: Dessin du skybox
 
         // TODO: Dessin des spotlights
     }

@@ -22,17 +22,15 @@ protected:
     virtual void getAllUniformLocations() override;
 };
 
-
 class Sky : public ShaderProgram
 {
 public:
-    // TODO: Uniform location ou autre
+    GLuint mvpULoc; // Comme dans le PhongShading
 
 protected:
     virtual void load() override;
     virtual void getAllUniformLocations() override;
 };
-
 
 class PhongShading : public ShaderProgram
 {
@@ -41,17 +39,16 @@ public:
     GLuint viewULoc;
     GLuint modelViewULoc;
     GLuint normalULoc;
-    
+
     GLuint nSpotLightsULoc;
-    
+
     GLuint globalAmbientULoc;
 
 public:
-    void setMatrices(glm::mat4& mvp, glm::mat4& view, glm::mat4& model);
+    void setMatrices(glm::mat4 &mvp, glm::mat4 &view, glm::mat4 &model);
 
 protected:
     virtual void load() override;
     virtual void getAllUniformLocations() override;
     virtual void assignAllUniformBlockIndexes() override;
 };
-

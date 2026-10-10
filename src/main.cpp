@@ -138,11 +138,11 @@ struct App : public OpenGLApplication
         grassTexture_.setWrap(GL_REPEAT);
         grassTexture_.enableMipmap();
 
-        fenceTexture_.load("../textures/fence.jpg");
+        fenceTexture_.load("../textures/fence.png");
         fenceTexture_.setFiltering(GL_NEAREST);
         fenceTexture_.setWrap(GL_REPEAT);
 
-        windmillTexture_.load("../textures/windmill.jpg");
+        windmillTexture_.load("../textures/windmill.png");
         windmillTexture_.setFiltering(GL_LINEAR);
         windmillTexture_.setWrap(GL_CLAMP_TO_EDGE);
         windmillTexture_.enableMipmap();
@@ -411,7 +411,7 @@ struct App : public OpenGLApplication
 
         setMaterial(grassMat);
         phongShadingShader_.setMatrices(mvp, view, model);
-
+        grassTexture_.use();
         grass_.draw();
     }
 
@@ -511,6 +511,7 @@ struct App : public OpenGLApplication
         phongShadingShader_.use();
         setMaterial(defaultMat);
 
+        windmillTexture_.use();
         windmill_.draw(projView, view);
         drawGround(projView, view);
 

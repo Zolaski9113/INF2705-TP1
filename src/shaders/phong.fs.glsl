@@ -96,7 +96,7 @@ void main()
         // Le facteur impacte la composante diffuse et spéculaire.
     }
 
-    vec3 color = vec3(0);
+    //vec3 color = vec3(0);
     //color += normal/2.0 + vec3(0.5); // DEBUG: Show normals
-    FragColor = vec4(color, 1.0);
+    FragColor = texture(diffuseSampler, attribsIn.texCoords);
 }

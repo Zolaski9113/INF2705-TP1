@@ -74,7 +74,8 @@ layout (std140) uniform LightingBlock
 void main()
 {
     // Attribs
-    
+    gl_Position = mvp * vec4(position, 1.0);
+    attribsOut.texCoords = texCoords;
     // TODO: Écriture des attributs de sortie
     //       Si la normale est nul, lui donner une valeur qui pointe vers le haut.
 

@@ -356,20 +356,46 @@ struct App : public OpenGLApplication
     void drawFences(glm::mat4 &projView, glm::mat4 &view)
     {
         const glm::vec3 FENCES_POSITIONS[] =
-            {
-                // TODO: Ajouter vos positions de clôture ici.
-                //       Devrait permettre de mettre une cloture qui entoure le moulin.
-                //       _______
-                //       |     |
-                //       |  M  |
-                //       | | | |
-                //       |_| |_|
+        {
+            // TODO: Ajouter vos positions de clôture ici.
+            //       Devrait permettre de mettre une cloture qui entoure le moulin.
+            //       _______
+            //       |     |
+            //       |  M  |
+            //       | | | |
+            //       |_| |_|
+            // Mur arrière (Z fixé à -17.5)
+            glm::vec3(-5.0f, 0.0f, -17.5f), glm::vec3(0.0f, 0.0f, -17.5f), glm::vec3(5.0f, 0.0f, -17.5f),
+
+            // Mur gauche (4 clôtures s'allongeant vers l'avant)
+            glm::vec3(-7.5f, 0.0f, -15.0f), glm::vec3(-7.5f, 0.0f, -10.0f),
+            glm::vec3(-7.5f, 0.0f, -5.0f),  glm::vec3(-7.5f, 0.0f, 0.0f),
+
+            // Mur droit (4 clôtures s'allongeant vers l'avant)
+            glm::vec3(7.5f, 0.0f, -15.0f), glm::vec3(7.5f, 0.0f, -10.0f),
+            glm::vec3(7.5f, 0.0f, -5.0f),  glm::vec3(7.5f, 0.0f, 0.0f),
+
+            // Mur avant (Propulsé à l'avant du moulin, Z = 2.5)
+            glm::vec3(-5.0f, 0.0f, 2.5f), glm::vec3(5.0f, 0.0f, 2.5f),
+
+            // Couloir d'entrée (Z = 5.0)
+            glm::vec3(-2.5f, 0.0f, 0.0f), glm::vec3(2.5f, 0.0f, 0.0f)
         };
 
         const float FENCES_ANGLES[] =
             {
-                // TODO: Ajouter vos angles de clôture ici.
-        };
+            // Arrière
+            glm::radians(90.0f), glm::radians(90.0f), glm::radians(90.0f),
+            // Gauche
+            0.0f, 0.0f, 0.0f, 0.0f,
+            // Droite
+            0.0f, 0.0f, 0.0f, 0.0f,
+            // Avant
+            glm::radians(90.0f), glm::radians(90.0f),
+            // Couloir 
+            0.0f, 0.0f
+       
+            };
 
         // TODO: À ajouter et compléter.
         //       Dessiner les clôtures. Celles-ci ont une texture transparente,
@@ -381,22 +407,46 @@ struct App : public OpenGLApplication
         //       Les clôtures doivent être visibles des deux sens.
         //       Il est important de restaurer l'état du contexte qui a été modifié à la fin de la méthode.
 
-        constexpr unsigned int N_FENCES = 0;
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        glDisable(GL_CULL_FACE);
+
+        fenceTexture_.use();
+
+        constexpr unsigned int N_FENCES = 15;
         std::map<float, unsigned int> sorted;
         for (unsigned int i = 0; i < N_FENCES; i++)
         {
             // TODO: Calcul de la distance par rapport à l'observateur (utiliser la matrice de vue!)
             //       et faite une insertion dans le map
+            glm::vec4 posInView = view * glm::vec4(FENCES_POSITIONS[i], 1.0f);
+            float distance = glm::length(glm::vec3(posInView));
+            sorted[distance] = i;
         }
 
         // TODO: Itération à l'inverse (de la plus grande distance jusqu'à la plus petit)
         for (std::map<float, unsigned int>::reverse_iterator it = sorted.rbegin(); it != sorted.rend(); ++it)
         {
             // TODO: Dessin des clôtures
+            unsigned int index = it->second;
+
+            glm::mat4 model = glm::mat4(1.0f);
+            model = glm::translate(model, FENCES_POSITIONS[index]);
+            model = glm::rotate(model, FENCES_ANGLES[index], glm::vec3(0.0f, 1.0f, 0.0f));
+            model = glm::scale(model, glm::vec3(5.0f));
+
+            glm::mat4 mvp = projView * model;
+            phongShadingShader_.setMatrices(mvp, view, model);
+
+            fence_.draw();
 
             // TODO: Partie 2, pour l'effet de contour, il faut agrandir l'objet à partir de la
             //       base du model (origine placé à y=0.5, sur le haut de la clôture)
         }
+
+        glDisable(GL_BLEND);
+        glEnable(GL_CULL_FACE);
     }
 
     // TODO: À modifier, ajouter les textures
@@ -534,6 +584,7 @@ struct App : public OpenGLApplication
         phongShadingShader_.use();
 
         // TODO: Dessin des clôtures
+		drawFences(projView, view);
 
         // TODO: Dessin des spotlights
     }

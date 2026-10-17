@@ -218,7 +218,7 @@ struct App : public OpenGLApplication
     {
         CHECK_GL_ERROR;
         // TODO: Partie 2: Ajouter le nettoyage du tampon de stencil
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
         ImGui::Begin("Scene Parameters");
         ImGui::Combo("Scene", &currentScene_, SCENE_NAMES, N_SCENE_NAMES);
@@ -352,18 +352,10 @@ struct App : public OpenGLApplication
         grass_.load(ground, sizeof(ground), planeElements, sizeof(planeElements));
     }
 
-    // TODO: À modifier, ajouter les textures, et l'effet de contour.
     void drawFences(glm::mat4 &projView, glm::mat4 &view)
     {
         const glm::vec3 FENCES_POSITIONS[] =
         {
-            // TODO: Ajouter vos positions de clôture ici.
-            //       Devrait permettre de mettre une cloture qui entoure le moulin.
-            //       _______
-            //       |     |
-            //       |  M  |
-            //       | | | |
-            //       |_| |_|
             // Mur arrière (Z fixé à -17.5)
             glm::vec3(-5.0f, 0.0f, -17.5f), glm::vec3(0.0f, 0.0f, -17.5f), glm::vec3(5.0f, 0.0f, -17.5f),
 
@@ -397,19 +389,9 @@ struct App : public OpenGLApplication
        
             };
 
-        // TODO: À ajouter et compléter.
-        //       Dessiner les clôtures. Celles-ci ont une texture transparente,
-        //       il est donc nécessaire d'activer le mélange des couleurs (GL_BLEND).
-        //       De plus, vous devez dessiner les clôtures du plus loin vers le plus proche
-        //       pour éviter les problèmes de mélange.
-        //       Utiliser un map avec la distance en clef pour les trier (les maps trient
-        //       à l'insertion).
-        //       Les clôtures doivent être visibles des deux sens.
-        //       Il est important de restaurer l'état du contexte qui a été modifié à la fin de la méthode.
-
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
+        glEnable(GL_STENCIL_TEST);
         glDisable(GL_CULL_FACE);
 
         fenceTexture_.use();
@@ -418,18 +400,20 @@ struct App : public OpenGLApplication
         std::map<float, unsigned int> sorted;
         for (unsigned int i = 0; i < N_FENCES; i++)
         {
-            // TODO: Calcul de la distance par rapport à l'observateur (utiliser la matrice de vue!)
-            //       et faite une insertion dans le map
+            // Calcul de la distance par rapport à l'observateur et insertion dans le map
             glm::vec4 posInView = view * glm::vec4(FENCES_POSITIONS[i], 1.0f);
             float distance = glm::length(glm::vec3(posInView));
             sorted[distance] = i;
         }
-
-        // TODO: Itération à l'inverse (de la plus grande distance jusqu'à la plus petit)
+        
         for (std::map<float, unsigned int>::reverse_iterator it = sorted.rbegin(); it != sorted.rend(); ++it)
         {
-            // TODO: Dessin des clôtures
             unsigned int index = it->second;
+
+            // — Dessiner l’objet en couleur, mais aussi dans le tampon de stencil lorsque seulement le test de profondeur passe.
+            glStencilFunc(GL_ALWAYS, 1, 0xFF);         
+            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE); 
+            glStencilMask(0xFF);
 
             glm::mat4 model = glm::mat4(1.0f);
             model = glm::translate(model, FENCES_POSITIONS[index]);
@@ -441,9 +425,29 @@ struct App : public OpenGLApplication
 
             fence_.draw();
 
-            // TODO: Partie 2, pour l'effet de contour, il faut agrandir l'objet à partir de la
-            //       base du model (origine placé à y=0.5, sur le haut de la clôture)
+            
+            //On change le teste pour ne rien écrire dans le tampon de stencil.
+            glStencilMask(0x00);
+
+            //On change le teste pour réussir lorsque le tampon de stencil n’a pas eu d’écriture précédemment.
+            glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+            // — On dessine une seconde fois le même objet, mais avec un autre shader tout en agrandissant l’objet.
+            edgeEffectShader_.use();
+
+            glm::mat4 edgeModel = glm::scale(model, glm::vec3(1.05f));
+            glm::mat4 edgeMvp = projView * edgeModel;
+
+            glUniformMatrix4fv(edgeEffectShader_.mvpULoc, 1, GL_FALSE, glm::value_ptr(edgeMvp));
+            fence_.draw();
+
+            // On remet le shader normal pour la prochaine itération de la boucle
+            phongShadingShader_.use();
+
         }
+        glStencilMask(0xFF);
+        glStencilFunc(GL_ALWAYS, 1, 0xFF);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+        glDisable(GL_STENCIL_TEST);
 
         glDisable(GL_BLEND);
         glEnable(GL_CULL_FACE);

@@ -16,6 +16,7 @@ class EdgeEffect : public ShaderProgram
 {
 public:
     // TODO: Uniform location ou autre
+    GLuint mvpULoc;
 
 protected:
     virtual void load() override;

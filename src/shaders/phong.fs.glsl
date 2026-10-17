@@ -80,6 +80,14 @@ float computeSpot(in float openingAngle, in float exponent, in vec3 spotDir, in 
 
 void main()
 {
+   vec4 texColor = texture(diffuseSampler, attribsIn.texCoords);
+    
+    // On empêche les pixels transparents de s'écrire dans le stencil
+    if(texColor.a < 0.1)
+    {
+        discard;
+    }
+
     // TODO: Calcul d'illumination
 
     // Directional light

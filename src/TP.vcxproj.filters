@@ -50,6 +50,18 @@
     <ClCompile Include="windmill.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="shader_program.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="shaders.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="textures.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="uniform_buffer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="CMakeLists.txt">
@@ -74,6 +86,13 @@
     <None Include="shaders\transform.vs.glsl">
       <Filter>Shader Source Files</Filter>
     </None>
+    <None Include="shaders\edge.fs.glsl" />
+    <None Include="shaders\edge.vs.glsl" />
+    <None Include="shaders\phong.fs.glsl" />
+    <None Include="shaders\phong.vs.glsl" />
+    <None Include="shaders\sky.fs.glsl" />
+    <None Include="shaders\sky.vs.glsl" />
+    <None Include="imgui.ini" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\inf2705\OpenGLApplication.hpp">
@@ -84,6 +103,33 @@
     </ClInclude>
     <ClInclude Include="..\inf2705\utils.hpp">
       <Filter>Header Files\inf2705</Filter>
+    </ClInclude>
+    <ClInclude Include="model.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="happly.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="model_data.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shader_program.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="stb_image.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="textures.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="uniform_buffer.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="windmill.hpp">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

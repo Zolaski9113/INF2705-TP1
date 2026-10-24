@@ -73,8 +73,13 @@ float computeSpot(in float openingAngle, in float exponent, in vec3 spotDir, in 
 {
     float spotFactor = 0.0;
     
-    // TODO: Calcul de spotlight, l'algorithme classique d'OpenGL vu en classe (voir annexe).
-    
+    float cosGamma = dot(lightDir, spotDir);
+    float cosDelta = cos(radians(openingAngle));
+
+    // Le spot n'éclaire que dans son cône et sur les faces tournées vers la lumière
+    if (dot(normal, lightDir) > 0.0 && cosGamma > cosDelta)
+        spotFactor = pow(cosGamma, exponent);
+
     return spotFactor;
 }
 
@@ -90,21 +95,59 @@ void main()
 
     // TODO: Calcul d'illumination
 
+
+    // Normalisation après la rasterisation
+    vec3 N = normalize(attribsIn.normal);
+    vec3 O = normalize(lightsIn.obsPos);
+
+    // Émission + ambiante globale
+    vec3 color = mat.emission + globalAmbient * mat.ambient * texColor.rgb;
+
     // Directional light
+
+    {
+        vec3 L = normalize(lightsIn.dirLightDir);
+        float NdotL = max(dot(N, L), 0.0);
+
+        vec3 ambient = dirLight.ambient * mat.ambient * texColor.rgb;
+        vec3 diffuse = NdotL * dirLight.diffuse * mat.diffuse * texColor.rgb;
+
+        vec3 specular = vec3(0.0);
+        if (NdotL > 0.0)
+        {
+            vec3 B = normalize(L + O);
+            specular = pow(max(dot(B, N), 0.0), mat.shininess) * dirLight.specular * mat.specular;
+        }
+
+        color += ambient + diffuse + specular;
+    }
         
     // Spot light
     
     for(int i = 0; i < nSpotLights; i++)
     {
-        // TODO: Calcul des spotlights
-    
-        // Utiliser un facteur d'atténuation. On peut utiliser smoothstep avec la distance
-        // entre la surface illuminé et la source de lumière. Il devrait y avoir un effet de blending
-        // entre 7 et 10 unitées.
-        // Le facteur impacte la composante diffuse et spéculaire.
-    }
+        float dist = length(lightsIn.spotLightsDir[i]);
+        vec3 L = normalize(lightsIn.spotLightsDir[i]);
+        vec3 spotDir = normalize(lightsIn.spotLightsSpotDir[i]);
 
-    //vec3 color = vec3(0);
-    //color += normal/2.0 + vec3(0.5); // DEBUG: Show normals
-    FragColor = texture(diffuseSampler, attribsIn.texCoords);
+        float spotFactor = computeSpot(spotLights[i].openingAngle, spotLights[i].exponent, spotDir, L, N);
+
+        float attenuation = 1.0 - smoothstep(7.0, 10.0, dist);
+        float factor = spotFactor * attenuation;
+
+        float NdotL = max(dot(N, L), 0.0);
+
+        vec3 ambient = spotLights[i].ambient * mat.ambient * texColor.rgb;
+        vec3 diffuse = NdotL * spotLights[i].diffuse * mat.diffuse * texColor.rgb;
+
+        vec3 specular = vec3(0.0);
+        if (NdotL > 0.0)
+        {
+            vec3 B = normalize(L + O);
+            specular = pow(max(dot(B, N), 0.0), mat.shininess) * spotLights[i].specular * mat.specular;
+        }
+
+        color += ambient + factor * (diffuse + specular);
+    }
+    FragColor = vec4(color, texColor.a);
 }

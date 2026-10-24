@@ -147,6 +147,9 @@ struct App : public OpenGLApplication
         windmillTexture_.setWrap(GL_CLAMP_TO_EDGE);
         windmillTexture_.enableMipmap();
 
+        whiteTexture_.load("../textures/white.png");
+        whiteTexture_.setFiltering(GL_NEAREST);
+
         // Chargement des textures des skybox
         const char *pathes[] = {
             "../textures/skybox/Daylight Box_Right.bmp",
@@ -469,6 +472,28 @@ struct App : public OpenGLApplication
         grass_.draw();
     }
 
+    void drawSpotlights(glm::mat4& projView, glm::mat4& view)
+    {
+        whiteTexture_.use();
+
+        for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
+        {
+            Material spotMat = defaultMat;
+            spotMat.ambient = glm::vec4(0.0f);
+            spotMat.diffuse = glm::vec4(0.0f);
+            spotMat.specular = glm::vec3(0.0f);
+            spotMat.emission = lightsData_.spotLights[i].diffuse;
+            setMaterial(spotMat);
+
+            glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(lightsData_.spotLights[i].position));
+            glm::mat4 mvp = projView * model;
+            phongShadingShader_.setMatrices(mvp, view, model);
+            spotlight_.draw();
+        }
+
+        setMaterial(defaultMat);
+    }
+
     glm::mat4 getViewMatrix()
     {
         // La vue est l'inverse de la caméra
@@ -524,12 +549,20 @@ struct App : public OpenGLApplication
         }
         else
         {
-            for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
             {
-                lightsData_.spotLights[i].ambient = glm::vec4(glm::vec3(0.02f), 0.0f);
-                lightsData_.spotLights[i].diffuse = glm::vec4(glm::vec3(0.8f), 0.0f);
-                lightsData_.spotLights[i].specular = glm::vec4(glm::vec3(0.4f), 0.0f);
-            }
+                const glm::vec3 SPOT_COLORS[N_SPOTLIGHTS] = {
+                    glm::vec3(1.0f, 0.0f, 0.0f),  // rouge
+                    glm::vec3(0.0f, 0.0f, 1.0f),  // bleu
+                    glm::vec3(1.0f, 1.0f, 1.0f)   // blanc
+                };
+
+                for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
+                {
+                    lightsData_.spotLights[i].ambient = glm::vec4(SPOT_COLORS[i] * 0.02f, 0.0f);
+                    lightsData_.spotLights[i].diffuse = glm::vec4(SPOT_COLORS[i] * 0.8f, 0.0f);
+                    lightsData_.spotLights[i].specular = glm::vec4(SPOT_COLORS[i] * 0.4f, 0.0f);
+                }
+              }
         }
     }
 
@@ -570,6 +603,11 @@ struct App : public OpenGLApplication
 
         drawGround(projView, view);
 
+
+        // TODO: Dessin des spotlights
+        setMaterial(defaultMat);
+        drawSpotlights(projView, view);
+
         // Penser à votre ordre de dessin, les todos sont volontairement mélangés ici.
         // Dessin du skybox
         skyShader_.use();
@@ -586,11 +624,10 @@ struct App : public OpenGLApplication
         skybox_.draw();
         glDepthFunc(GL_LESS);
         phongShadingShader_.use();
+        setMaterial(defaultMat);
 
         // TODO: Dessin des clôtures
 		drawFences(projView, view);
-
-        // TODO: Dessin des spotlights
     }
 
 private:
@@ -603,6 +640,7 @@ private:
     Texture2D grassTexture_;
     Texture2D fenceTexture_;
     Texture2D windmillTexture_;
+    Texture2D whiteTexture_;
     TextureCubeMap skyboxTexture_;
     TextureCubeMap skyboxNightTexture_;
 

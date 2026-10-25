@@ -10,7 +10,6 @@ void main()
 {
     texCoords = position;
     gl_Position = (mvp * vec4(position, 1.0)).xyww;
-    //Comparé au tutoriel, la matrice mvp englobe déja la projection
-    //On fait .xyww pour forcer la profondeur a 1.0, soit toujours le plus loin,
-    //ce qui fait qu'il n'est dessiné que la ou il n'y a rien d'autre devant
+    // mvp = projection × vue sans translation (calculée en C++) : le ciel suit la caméra sans s'en approcher.
+    // .xyww force la profondeur à 1.0 : avec GL_LEQUAL, le ciel n'apparaît que là où rien n'est dessiné.
 }

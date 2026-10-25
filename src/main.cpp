@@ -132,7 +132,7 @@ struct App : public OpenGLApplication
 
         windmill_.phongShadingShader = &phongShadingShader_;
 
-        // Chargement  différentes textures
+        // Chargement des différentes textures
         grassTexture_.load("../textures/grass.jpg");
         grassTexture_.setFiltering(GL_LINEAR);
         grassTexture_.setWrap(GL_REPEAT);
@@ -212,30 +212,24 @@ struct App : public OpenGLApplication
 
         // Calculé uniquement la première fois et aux redimentionnements
         projectionMatrix_ = getPerspectiveProjectionMatrix();
-
-        CHECK_GL_ERROR;
     }
 
     // Appelée à chaque trame. Le buffer swap est fait juste après.
     void drawFrame() override
     {
-        CHECK_GL_ERROR;
-        // TODO: Partie 2: Ajouter le nettoyage du tampon de stencil
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
         ImGui::Begin("Scene Parameters");
         ImGui::Combo("Scene", &currentScene_, SCENE_NAMES, N_SCENE_NAMES);
 
-        // Et oui, il est désormais possible de recharger les shaders en gardant l'application ouvert.
+        // Recharge les shaders sans fermer l'application.
         if (ImGui::Button("Reload Shaders"))
         {
-            CHECK_GL_ERROR;
             edgeEffectShader_.reload();
             phongShadingShader_.reload();
             skyShader_.reload();
 
             setLightingUniform();
-            CHECK_GL_ERROR;
         }
         ImGui::End();
 
@@ -370,10 +364,10 @@ struct App : public OpenGLApplication
             glm::vec3(7.5f, 0.0f, -15.0f), glm::vec3(7.5f, 0.0f, -10.0f),
             glm::vec3(7.5f, 0.0f, -5.0f),  glm::vec3(7.5f, 0.0f, 0.0f),
 
-            // Mur avant (Propulsé à l'avant du moulin, Z = 2.5)
+            // Mur avant (Z = 2.5), ouvert au centre pour l'entrée
             glm::vec3(-5.0f, 0.0f, 2.5f), glm::vec3(5.0f, 0.0f, 2.5f),
 
-            // Couloir d'entrée (Z = 5.0)
+            // Couloir d'entrée, de part et d'autre de l'ouverture
             glm::vec3(-2.5f, 0.0f, 0.0f), glm::vec3(2.5f, 0.0f, 0.0f)
         };
 
@@ -387,7 +381,7 @@ struct App : public OpenGLApplication
             0.0f, 0.0f, 0.0f, 0.0f,
             // Avant
             glm::radians(90.0f), glm::radians(90.0f),
-            // Couloir 
+            // Couloir d'entrée
             0.0f, 0.0f
        
             };
@@ -400,16 +394,17 @@ struct App : public OpenGLApplication
         fenceTexture_.use();
 
         constexpr unsigned int N_FENCES = 15;
-        std::map<float, unsigned int> sorted;
+        // multimap : deux clôtures à la même distance (enclos symétrique) ne s'écrasent pas
+        std::multimap<float, unsigned int> sorted;
         for (unsigned int i = 0; i < N_FENCES; i++)
         {
             // Calcul de la distance par rapport à l'observateur et insertion dans le map
             glm::vec4 posInView = view * glm::vec4(FENCES_POSITIONS[i], 1.0f);
             float distance = glm::length(glm::vec3(posInView));
-            sorted[distance] = i;
+            sorted.insert({distance, i});
         }
         
-        for (std::map<float, unsigned int>::reverse_iterator it = sorted.rbegin(); it != sorted.rend(); ++it)
+        for (std::multimap<float, unsigned int>::reverse_iterator it = sorted.rbegin(); it != sorted.rend(); ++it)
         {
             unsigned int index = it->second;
 
@@ -456,7 +451,6 @@ struct App : public OpenGLApplication
         glEnable(GL_CULL_FACE);
     }
 
-    // TODO: À modifier, ajouter les textures
     void drawGround(glm::mat4 &projView, glm::mat4 &view)
     {
         // Carré unitaire agrandi à 50 x 50 et abaissé de 0.1.
@@ -571,8 +565,6 @@ struct App : public OpenGLApplication
         material_.updateData(&mat, 0, sizeof(Material));
     }
 
-    // TODO: À ajouter et modifier.
-    //       Ajouter les textures, les skyboxes, etc.
     void sceneMain()
     {
         ImGui::Begin("Scene Parameters");
@@ -595,6 +587,7 @@ struct App : public OpenGLApplication
         // Produit projection * vue calculé UNE SEULE FOIS par trame, puis réutilisé
         glm::mat4 projView = projectionMatrix_ * view;
 
+        // Objets opaques d'abord
         phongShadingShader_.use();
         setMaterial(defaultMat);
 
@@ -603,13 +596,9 @@ struct App : public OpenGLApplication
 
         drawGround(projView, view);
 
-
-        // TODO: Dessin des spotlights
-        setMaterial(defaultMat);
         drawSpotlights(projView, view);
 
-        // Penser à votre ordre de dessin, les todos sont volontairement mélangés ici.
-        // Dessin du skybox
+        // Ciel après les opaques : il ne remplit que les pixels encore vides
         skyShader_.use();
 
         glm::mat4 skyMvp = projectionMatrix_ * glm::mat4(glm::mat3(view));
@@ -624,10 +613,9 @@ struct App : public OpenGLApplication
         skybox_.draw();
         glDepthFunc(GL_LESS);
         phongShadingShader_.use();
-        setMaterial(defaultMat);
 
-        // TODO: Dessin des clôtures
-		drawFences(projView, view);
+        // Clôtures transparentes en dernier, pour se mélanger avec ce qui est derrière
+        drawFences(projView, view);
     }
 
 private:

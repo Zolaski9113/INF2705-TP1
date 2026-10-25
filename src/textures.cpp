@@ -46,14 +46,14 @@ Texture2D::~Texture2D()
 
 void Texture2D::setFiltering(GLenum filteringMode)
 {
-    glBindTexture(GL_TEXTURE_2D, m_id);                                   // FACULTATIF, mais fait en sorte que la méthode marche peu importe l'ordre des textures liées
+    glBindTexture(GL_TEXTURE_2D, m_id); // Lie cette texture : les réglages suivants s'appliquent à elle
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filteringMode); // Configure le MIN ET LE MAG en fonction
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filteringMode); // en soit nearest, soit linear
 }
 
 void Texture2D::setWrap(GLenum wrapMode)
 {
-    glBindTexture(GL_TEXTURE_2D, m_id); // FACULTATIF, mais fait en sorte que la méthode marche peu importe l'ordre des textures liées
+    glBindTexture(GL_TEXTURE_2D, m_id); // Lie cette texture : les réglages suivants s'appliquent à elle
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode); // Configure les 2 wrap modes
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
@@ -61,7 +61,7 @@ void Texture2D::setWrap(GLenum wrapMode)
 
 void Texture2D::enableMipmap()
 {
-    glBindTexture(GL_TEXTURE_2D, m_id); // FACULTATIF, mais fait en sorte que la méthode marche peu importe l'ordre des textures liées
+    glBindTexture(GL_TEXTURE_2D, m_id); // Lie cette texture : les réglages suivants s'appliquent à elle
 
     glGenerateMipmap(GL_TEXTURE_2D);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // Utilisé pour le rendu lisse

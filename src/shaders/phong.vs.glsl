@@ -76,16 +76,14 @@ void main()
     // Attribs
     gl_Position = mvp * vec4(position, 1.0);
     attribsOut.texCoords = texCoords;
-    // TODO: Écriture des attributs de sortie
-    //       Si la normale est nul, lui donner une valeur qui pointe vers le haut.
+    // Normale nulle (modèle sans normales) : on la fait pointer vers le haut
 
     vec3 n = (length(normal) < 0.0001) ? vec3(0.0, 1.0, 0.0) : normal;
     attribsOut.normal = normalMatrix * n;
 
     // Lights
 
-    // TODO: Écriture des propriétés de lumières en sortie
-    
+    // Directions de lumière dans le repère de la vue
     vec3 viewPos = (modelView * vec4(position, 1.0)).xyz;
 
     lightsOut.obsPos = -viewPos;

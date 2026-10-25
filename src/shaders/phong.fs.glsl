@@ -93,9 +93,6 @@ void main()
         discard;
     }
 
-    // TODO: Calcul d'illumination
-
-
     // Normalisation après la rasterisation
     vec3 N = normalize(attribsIn.normal);
     vec3 O = normalize(lightsIn.obsPos);

@@ -22,6 +22,8 @@ set(ALL_FILES
     "shader_program.hpp"
     "uniform_buffer.cpp"
     "uniform_buffer.hpp"
+    "shader_storage_buffer.cpp"
+    "shader_storage_buffer.hpp"
     "stb_image.h"
     "happly.h"
     # "../inf2705/Mesh.hpp"

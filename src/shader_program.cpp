@@ -2,7 +2,7 @@
 
 #include <iostream>
 
-#include "../inf2705/utils.hpp"
+#include "utils.hpp"
 
 
 static bool checkShaderCompilingError(const char* name, GLuint id)
@@ -70,8 +70,16 @@ void ShaderProgram::reload()
         const std::string& path = it->first;
         if (path.find("vs") != std::string::npos)
             type = GL_VERTEX_SHADER;
+        else if (path.find("tcs") != std::string::npos)
+            type = GL_TESS_CONTROL_SHADER;
+        else if (path.find("tes") != std::string::npos)
+            type = GL_TESS_EVALUATION_SHADER;
+        else if (path.find("gs") != std::string::npos)        
+            type = GL_GEOMETRY_SHADER;
         else if (path.find("fs") != std::string::npos)
             type = GL_FRAGMENT_SHADER;
+        else if (path.find("cs") != std::string::npos)
+            type = GL_COMPUTE_SHADER;
         
         loadShaderSource(type, path.c_str());
     }

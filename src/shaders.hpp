@@ -23,6 +23,16 @@ protected:
     virtual void getAllUniformLocations() override;
 };
 
+class Bezier : public ShaderProgram
+{
+public:
+    GLuint mvpULoc;
+
+protected:
+    virtual void load() override;
+    virtual void getAllUniformLocations() override;
+};
+
 class PhongShading : public ShaderProgram
 {
 public:

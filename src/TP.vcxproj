@@ -189,6 +189,8 @@
     <None Include="shaders\phong.vs.glsl" />
     <None Include="shaders\sky.fs.glsl" />
     <None Include="shaders\sky.vs.glsl" />
+    <None Include="shaders\bezier.fs.glsl" />
+    <None Include="shaders\bezier.vs.glsl" />
     <None Include="shaders\grass.fs.glsl" />
     <None Include="shaders\grass.gs.glsl" />
     <None Include="shaders\grass.tcs.glsl" />

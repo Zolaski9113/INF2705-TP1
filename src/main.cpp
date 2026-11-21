@@ -21,6 +21,7 @@
 
 #include "model.hpp"
 #include "model_data.hpp"
+#include "shader_storage_buffer.hpp"
 #include "shaders.hpp"
 #include "textures.hpp"
 #include "uniform_buffer.hpp"
@@ -40,6 +41,18 @@ struct Material
     glm::vec4 diffuse;  // vec3, but padded
     glm::vec3 specular;
     GLfloat shininess;
+};
+
+// Partie 3 : particule, même disposition mémoire que dans le compute shader. NE PAS MODIFIER.
+struct Particle
+{
+    glm::vec3 position;
+    GLfloat zOrientation;
+    glm::vec4 velocity; // vec3, but padded
+    glm::vec4 color;
+    glm::vec2 size;
+    GLfloat timeToLive;
+    GLfloat maxTimeToLive;
 };
 
 struct DirectionalLight
@@ -82,10 +95,62 @@ Material grassMat =
         {0.05f, 0.05f, 0.05f},
         100.0f};
 
+// Partie 1 : spline de Bézier
+
+Material bezierMat =
+    {
+        {1.0f, 1.0f, 1.0f, 0.0f},
+        {0.0f, 0.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 0.0f},
+        1.0f};
+
+struct BezierCurve
+{
+    glm::vec3 p0;
+    glm::vec3 c0;
+    glm::vec3 c1;
+    glm::vec3 p1;
+};
+
+BezierCurve curves[5] =
+    {
+        {
+            glm::vec3(-0.509, 2.403, 6.924),
+            glm::vec3(2.412, 12.011, 20.396),
+            glm::vec3(-23.731, 5.855, 25.199),
+            glm::vec3(-25.732, 15.439, 13.561),
+        },
+        {
+            glm::vec3(-25.732, 15.439, 13.561),
+            glm::vec3(-27.069, 21.845, 5.781),
+            glm::vec3(-4.807, 26.461, -10.716),
+            glm::vec3(-7.574, 25.967, -12.861),
+        },
+        {
+            glm::vec3(-7.574, 25.967, -12.861),
+            glm::vec3(-21.299, 23.516, -23.495),
+            glm::vec3(-18.956, 13.960, -36.813),
+            glm::vec3(-3.324, 11.588, -33.743),
+        },
+        {
+            glm::vec3(-3.324, 11.588, -33.743),
+            glm::vec3(4.812, 10.354, -32.145),
+            glm::vec3(8.408, 22.100, -7.555),
+            glm::vec3(23.264, 6.067, -5.370),
+        },
+        {
+            glm::vec3(23.264, 6.067, -5.370),
+            glm::vec3(29.367, -0.518, -4.473),
+            glm::vec3(2.412, 12.011, 20.396),
+            glm::vec3(-0.088, 12.011, 17.896),
+        },
+};
+
 struct App : public OpenGLApplication
 {
     App()
-        : isDay_(true), cameraPosition_(0.f, 0.f, 0.f), cameraOrientation_(0.f, 0.f), currentScene_(0), isMouseMotionEnabled_(false)
+        : isDay_(true), cameraPosition_(0.f, 0.f, 0.f), cameraOrientation_(0.f, 0.f), currentScene_(0), isMouseMotionEnabled_(false), totalTime(0.0), timerParticles_(0.0), nParticles_(0)
     {
     }
 
@@ -122,6 +187,7 @@ struct App : public OpenGLApplication
         glClearColor(0.05f, 0.1f, 0.1f, 1.0f);
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
+        glEnable(GL_PROGRAM_POINT_SIZE); // pour être en mesure de modifier gl_PointSize dans les shaders
 
         // Partie 1
 
@@ -129,6 +195,9 @@ struct App : public OpenGLApplication
         edgeEffectShader_.create();
         phongShadingShader_.create();
         skyShader_.create();
+        bezierShader_.create();
+
+        // TODO: Partie 1-2-3 : créer les nouveaux shaders (courbe, herbe, dessin des particules, mise à jour des particules)
 
         windmill_.phongShadingShader = &phongShadingShader_;
 
@@ -212,6 +281,26 @@ struct App : public OpenGLApplication
 
         // Calculé uniquement la première fois et aux redimentionnements
         projectionMatrix_ = getPerspectiveProjectionMatrix();
+
+        glGenVertexArrays(1, &vaoBezier_);
+        glBindVertexArray(vaoBezier_);
+
+        glGenBuffers(1, &vboBezier_);
+        glBindBuffer(GL_ARRAY_BUFFER, vboBezier_);
+        glBufferData(GL_ARRAY_BUFFER, N_CURVES * (MAX_BEZIER_EXTRA_POINTS + 2) * sizeof(glm::vec3), nullptr, GL_DYNAMIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+
+        // TODO: Partie 2 : générer le mesh des patches triangulaires qui couvre le sol (VAO, VBO, EBO)
+
+        // TODO: Partie 3 : allouer les deux SSBO pour MAX_PARTICLES_ particules.
+        //       Seul le buffer en entrée est initialisé à 0. Réfléchir au type d'usage.
+
+        // TODO: Partie 3 : créer le VAO pour le dessin des particules et activer les attributs nécessaires
+
+        // TODO: Partie 3 : charger la texture des particules, "../textures/smoke.png"
     }
 
     // Appelée à chaque trame. Le buffer swap est fait juste après.
@@ -228,7 +317,7 @@ struct App : public OpenGLApplication
             edgeEffectShader_.reload();
             phongShadingShader_.reload();
             skyShader_.reload();
-
+            bezierShader_.reload();
             setLightingUniform();
         }
         ImGui::End();
@@ -352,39 +441,38 @@ struct App : public OpenGLApplication
     void drawFences(glm::mat4 &projView, glm::mat4 &view)
     {
         const glm::vec3 FENCES_POSITIONS[] =
-        {
-            // Mur arrière (Z fixé à -17.5)
-            glm::vec3(-5.0f, 0.0f, -17.5f), glm::vec3(0.0f, 0.0f, -17.5f), glm::vec3(5.0f, 0.0f, -17.5f),
+            {
+                // Mur arrière (Z fixé à -17.5)
+                glm::vec3(-5.0f, 0.0f, -17.5f), glm::vec3(0.0f, 0.0f, -17.5f), glm::vec3(5.0f, 0.0f, -17.5f),
 
-            // Mur gauche (4 clôtures s'allongeant vers l'avant)
-            glm::vec3(-7.5f, 0.0f, -15.0f), glm::vec3(-7.5f, 0.0f, -10.0f),
-            glm::vec3(-7.5f, 0.0f, -5.0f),  glm::vec3(-7.5f, 0.0f, 0.0f),
+                // Mur gauche (4 clôtures s'allongeant vers l'avant)
+                glm::vec3(-7.5f, 0.0f, -15.0f), glm::vec3(-7.5f, 0.0f, -10.0f),
+                glm::vec3(-7.5f, 0.0f, -5.0f), glm::vec3(-7.5f, 0.0f, 0.0f),
 
-            // Mur droit (4 clôtures s'allongeant vers l'avant)
-            glm::vec3(7.5f, 0.0f, -15.0f), glm::vec3(7.5f, 0.0f, -10.0f),
-            glm::vec3(7.5f, 0.0f, -5.0f),  glm::vec3(7.5f, 0.0f, 0.0f),
+                // Mur droit (4 clôtures s'allongeant vers l'avant)
+                glm::vec3(7.5f, 0.0f, -15.0f), glm::vec3(7.5f, 0.0f, -10.0f),
+                glm::vec3(7.5f, 0.0f, -5.0f), glm::vec3(7.5f, 0.0f, 0.0f),
 
-            // Mur avant (Z = 2.5), ouvert au centre pour l'entrée
-            glm::vec3(-5.0f, 0.0f, 2.5f), glm::vec3(5.0f, 0.0f, 2.5f),
+                // Mur avant (Z = 2.5), ouvert au centre pour l'entrée
+                glm::vec3(-5.0f, 0.0f, 2.5f), glm::vec3(5.0f, 0.0f, 2.5f),
 
-            // Couloir d'entrée, de part et d'autre de l'ouverture
-            glm::vec3(-2.5f, 0.0f, 0.0f), glm::vec3(2.5f, 0.0f, 0.0f)
-        };
+                // Couloir d'entrée, de part et d'autre de l'ouverture
+                glm::vec3(-2.5f, 0.0f, 0.0f), glm::vec3(2.5f, 0.0f, 0.0f)};
 
         const float FENCES_ANGLES[] =
             {
-            // Arrière
-            glm::radians(90.0f), glm::radians(90.0f), glm::radians(90.0f),
-            // Gauche
-            0.0f, 0.0f, 0.0f, 0.0f,
-            // Droite
-            0.0f, 0.0f, 0.0f, 0.0f,
-            // Avant
-            glm::radians(90.0f), glm::radians(90.0f),
-            // Couloir d'entrée
-            0.0f, 0.0f
-       
-            };
+                // Arrière
+                glm::radians(90.0f), glm::radians(90.0f), glm::radians(90.0f),
+                // Gauche
+                0.0f, 0.0f, 0.0f, 0.0f,
+                // Droite
+                0.0f, 0.0f, 0.0f, 0.0f,
+                // Avant
+                glm::radians(90.0f), glm::radians(90.0f),
+                // Couloir d'entrée
+                0.0f, 0.0f
+
+        };
 
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -403,14 +491,14 @@ struct App : public OpenGLApplication
             float distance = glm::length(glm::vec3(posInView));
             sorted.insert({distance, i});
         }
-        
+
         for (std::multimap<float, unsigned int>::reverse_iterator it = sorted.rbegin(); it != sorted.rend(); ++it)
         {
             unsigned int index = it->second;
 
             // — Dessiner l’objet en couleur, mais aussi dans le tampon de stencil lorsque seulement le test de profondeur passe.
-            glStencilFunc(GL_ALWAYS, 1, 0xFF);         
-            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE); 
+            glStencilFunc(GL_ALWAYS, 1, 0xFF);
+            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
             glStencilMask(0xFF);
 
             glm::mat4 model = glm::mat4(1.0f);
@@ -423,11 +511,10 @@ struct App : public OpenGLApplication
 
             fence_.draw();
 
-            
-            //On change le teste pour ne rien écrire dans le tampon de stencil.
+            // On change le teste pour ne rien écrire dans le tampon de stencil.
             glStencilMask(0x00);
 
-            //On change le teste pour réussir lorsque le tampon de stencil n’a pas eu d’écriture précédemment.
+            // On change le teste pour réussir lorsque le tampon de stencil n’a pas eu d’écriture précédemment.
             glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
             // — On dessine une seconde fois le même objet, mais avec un autre shader tout en agrandissant l’objet.
             edgeEffectShader_.use();
@@ -440,7 +527,6 @@ struct App : public OpenGLApplication
 
             // On remet le shader normal pour la prochaine itération de la boucle
             phongShadingShader_.use();
-
         }
         glStencilMask(0xFF);
         glStencilFunc(GL_ALWAYS, 1, 0xFF);
@@ -466,7 +552,7 @@ struct App : public OpenGLApplication
         grass_.draw();
     }
 
-    void drawSpotlights(glm::mat4& projView, glm::mat4& view)
+    void drawSpotlights(glm::mat4 &projView, glm::mat4 &view)
     {
         whiteTexture_.use();
 
@@ -488,8 +574,29 @@ struct App : public OpenGLApplication
         setMaterial(defaultMat);
     }
 
+    glm::vec3 evaluateBezier(const BezierCurve &curve, float t)
+    {
+        // B(t) = (1-t)³·p0 + 3(1-t)²·t·c0 + 3(1-t)·t²·c1 + t³·p1
+
+        float u = 1.0f - t;
+
+        return (u * u * u * curve.p0) + (3 * u * u * t * curve.c0) + (3 * u * t * t * curve.c1) + (t * t * t * curve.p1);
+    }
+
+    void drawBezier(glm::mat4 &projView)
+    {
+        bezierShader_.use();
+        glUniformMatrix4fv(bezierShader_.mvpULoc, 1, GL_FALSE, glm::value_ptr(projView));
+
+        glBindVertexArray(vaoBezier_);
+        for (unsigned int c = 0; c < N_CURVES; c++)
+            glDrawArrays(GL_LINE_STRIP, c * (bezierNPoints + 2), bezierNPoints + 2);
+    }
+
     glm::mat4 getViewMatrix()
     {
+        if (cameraMode == 1)
+            return glm::lookAt(cameraPosition_, glm::vec3(0.0f, 2.0f, -10.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         // La vue est l'inverse de la caméra
         glm::mat4 view = glm::mat4(1.0f);
 
@@ -545,9 +652,9 @@ struct App : public OpenGLApplication
         {
             {
                 const glm::vec3 SPOT_COLORS[N_SPOTLIGHTS] = {
-                    glm::vec3(1.0f, 0.0f, 0.0f),  // rouge
-                    glm::vec3(0.0f, 0.0f, 1.0f),  // bleu
-                    glm::vec3(1.0f, 1.0f, 1.0f)   // blanc
+                    glm::vec3(1.0f, 0.0f, 0.0f), // rouge
+                    glm::vec3(0.0f, 0.0f, 1.0f), // bleu
+                    glm::vec3(1.0f, 1.0f, 1.0f)  // blanc
                 };
 
                 for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
@@ -556,7 +663,7 @@ struct App : public OpenGLApplication
                     lightsData_.spotLights[i].diffuse = glm::vec4(SPOT_COLORS[i] * 0.8f, 0.0f);
                     lightsData_.spotLights[i].specular = glm::vec4(SPOT_COLORS[i] * 0.4f, 0.0f);
                 }
-              }
+            }
         }
     }
 
@@ -577,10 +684,64 @@ struct App : public OpenGLApplication
         }
         ImGui::SliderFloat("Wind Speed", &windmill_.windSpeed, 0.0f, 20.0f, "%.2f m/s");
         ImGui::SliderFloat("Wind Angle", &windmill_.windAngle, -M_PI, M_PI, "%.2f°");
+        ImGui::SliderInt("Bezier Number Of Points", (int *)&bezierNPoints, 0, MAX_BEZIER_EXTRA_POINTS);
+        if (ImGui::Button("Animate Camera"))
+        {
+            isAnimatingCamera = true;
+            cameraMode = 1;
+        }
         ImGui::End();
 
-        updateCameraInput();
+        if (!isAnimatingCamera)
+            updateCameraInput();
+
         windmill_.update(deltaTime_);
+
+        if (isAnimatingCamera)
+        {
+            if (cameraAnimation < 5)
+            {
+                unsigned int index = static_cast<unsigned int>(cameraAnimation); // partie entière de cameraAnimation
+                float t = cameraAnimation - index; // partie fractionnaire
+                cameraPosition_ = evaluateBezier(curves[index], t);
+
+                cameraAnimation += deltaTime_ / 3.0;
+            }
+            else
+            {
+                cameraPosition_ = curves[4].p1;
+
+                // Remise à 0 de l'orientation
+                glm::vec3 distance = glm::vec3(0, 2, -10) - cameraPosition_;
+
+                float horizontalDistance = sqrt(distance.x * distance.x + distance.z * distance.z);
+
+                cameraOrientation_.y = atan2(-distance.x, -distance.z);
+                cameraOrientation_.x = atan2(distance.y, horizontalDistance);
+
+                cameraAnimation = 0.f;
+                isAnimatingCamera = false;
+                cameraMode = 0;
+            }
+        }
+
+        bool hasNumberOfSidesChanged = bezierNPoints != oldBezierNPoints;
+        if (hasNumberOfSidesChanged)
+        {
+            oldBezierNPoints = bezierNPoints;
+
+            std::vector<glm::vec3> points;
+
+            for (const BezierCurve &curve : curves)
+                for (unsigned int i = 0; i <= bezierNPoints + 1; i++)
+                {
+                    float t = float(i) / (bezierNPoints + 1);
+                    points.push_back(evaluateBezier(curve, t));
+                }
+
+            glBindBuffer(GL_ARRAY_BUFFER, vboBezier_);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, points.size() * sizeof(glm::vec3), points.data());
+        }
 
         glm::mat4 view = getViewMatrix();
 
@@ -597,6 +758,10 @@ struct App : public OpenGLApplication
         drawGround(projView, view);
 
         drawSpotlights(projView, view);
+
+        drawBezier(projView);
+
+        // TODO: Partie 2 : dessiner l'herbe (grassMat)
 
         // Ciel après les opaques : il ne remplit que les pixels encore vides
         skyShader_.use();
@@ -616,6 +781,35 @@ struct App : public OpenGLApplication
 
         // Clôtures transparentes en dernier, pour se mélanger avec ce qui est derrière
         drawFences(projView, view);
+
+        // Partie 3 : particules, dessinées après les objets opaques car leur texture est transparente.
+        totalTime += deltaTime_;
+        timerParticles_ += deltaTime_;
+        const float particlesSpawnInterval = 0.2f;
+
+        unsigned int particlesToAdd = timerParticles_ / particlesSpawnInterval;
+        timerParticles_ -= particlesToAdd * particlesSpawnInterval;
+
+        nParticles_ += particlesToAdd;
+        if (nParticles_ > MAX_PARTICLES_)
+            nParticles_ = MAX_PARTICLES_;
+
+        // TODO: Partie 3 : mise à jour des particules avec le compute shader.
+        //       Envoyer les uniforms, configurer les buffers d'entrée et de sortie, puis glDispatchCompute.
+        //       Utiliser la position de la meule pour la position et la direction d'émission.
+        // glm::vec3 emitterPos = glm::vec3(0.0, 0.0, 0.0);
+        // glm::vec3 emitterDir = glm::vec3(1, 0, 0);
+
+        // TODO: Partie 3 : dessin des particules (nParticles_ particules, buffer en entrée comme source d'attributs).
+        //       Activer le blending, désactiver l'écriture de profondeur, puis restaurer l'état.
+
+        // TODO: Partie 3 : interchanger les buffers d'entrée et de sortie
+    }
+
+    void onClose() override
+    {
+        glDeleteVertexArrays(1, &vaoBezier_);
+        glDeleteBuffers(1, &vboBezier_);
     }
 
 private:
@@ -623,6 +817,7 @@ private:
     EdgeEffect edgeEffectShader_;
     PhongShading phongShadingShader_;
     Sky skyShader_;
+    Bezier bezierShader_;
 
     // Textures
     Texture2D grassTexture_;
@@ -654,6 +849,20 @@ private:
     glm::vec3 cameraPosition_;
     glm::vec2 cameraOrientation_;
 
+    // Partie 1 : spline de Bézier
+    static constexpr unsigned int N_CURVES = 5;
+    static constexpr unsigned int MAX_BEZIER_EXTRA_POINTS = 16;
+    unsigned int bezierNPoints = 3; // Nombre de points supplémentaires sur la courbe, 0 est une ligne droite
+    unsigned int oldBezierNPoints = 0;
+    GLuint vaoBezier_;
+    GLuint vboBezier_;
+
+    int cameraMode = 0;
+    float cameraAnimation = 0.f;
+    bool isAnimatingCamera = false;
+
+    // TODO: Partie 1-2 : ajouter les attributs vao, vbo, ebo nécessaires (spline et patches d'herbe)
+
     static constexpr unsigned int N_SPOTLIGHTS = 3;
 
     // Imgui var
@@ -664,6 +873,19 @@ private:
 
     bool isMouseMotionEnabled_;
     glm::mat4 projectionMatrix_;
+
+    // Partie 3 : particules
+    float totalTime;
+    float timerParticles_;
+
+    static const unsigned int MAX_PARTICLES_ = 64;
+    unsigned int nParticles_;
+
+    GLuint vaoParticles_;
+    ShaderStorageBuffer particles_[2];
+
+    // TODO: Partie 1-2-3 : ajouter les shaders (courbe, herbe, dessin et mise à jour des particules)
+    // TODO: Partie 3 : ajouter la texture des particules
 };
 
 int main(int argc, char *argv[])

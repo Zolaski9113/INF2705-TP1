@@ -34,6 +34,22 @@ void Sky::getAllUniformLocations()
     mvpULoc = glGetUniformLocation(id_, "mvp"); // initialisation des valeurs de uniform en attributs
 }
 
+void Bezier::load()
+{
+    const char *VERTEX_SRC_PATH = "./shaders/bezier.vs.glsl";
+    const char *FRAGMENT_SRC_PATH = "./shaders/bezier.fs.glsl";
+
+    name_ = "Bezier";
+    loadShaderSource(GL_VERTEX_SHADER, VERTEX_SRC_PATH);
+    loadShaderSource(GL_FRAGMENT_SHADER, FRAGMENT_SRC_PATH);
+    link();
+}
+
+void Bezier::getAllUniformLocations()
+{
+    mvpULoc = glGetUniformLocation(id_, "mvp"); // initialisation des valeurs de uniform en attributs
+}
+
 void PhongShading::load()
 {
     const char *VERTEX_SRC_PATH = "./shaders/phong.vs.glsl";

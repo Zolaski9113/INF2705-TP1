@@ -149,11 +149,15 @@ BezierCurve curves[5] =
 
 struct App : public OpenGLApplication
 {
+    // ---------- Cycle de vie ----------
+    // État de départ : jour, caméra à l'origine, aucune particule.
     App()
-        : isDay_(true), cameraPosition_(0.f, 0.f, 0.f), cameraOrientation_(0.f, 0.f), currentScene_(0), isMouseMotionEnabled_(false), totalTime(0.0), timerParticles_(0.0), nParticles_(0)
+        : isDay_(true), cameraPosition_(0.f, 0.f, 0.f), cameraOrientation_(0.f, 0.f), isMouseMotionEnabled_(false), currentScene_(0), totalTime(0.0), timerParticles_(0.0), nParticles_(0)
     {
     }
 
+    // Appelée une fois au démarrage : configure OpenGL, crée les shaders, charge les textures
+    // et les modèles, puis alloue les buffers (lumières, spline, particules).
     void init() override
     {
         // Le message expliquant les touches de clavier.
@@ -189,9 +193,7 @@ struct App : public OpenGLApplication
         glEnable(GL_CULL_FACE);
         glEnable(GL_PROGRAM_POINT_SIZE); // pour être en mesure de modifier gl_PointSize dans les shaders
 
-        // Partie 1
-
-        // Création des shaders program (compilation et liaison).
+        // Shaders : compilation et liaison des programmes.
         edgeEffectShader_.create();
         phongShadingShader_.create();
         skyShader_.create();
@@ -243,8 +245,7 @@ struct App : public OpenGLApplication
 
         loadModels();
 
-        // Partie 3
-
+        // Matériau et lumières : uniform buffers aux points de liaison 0 et 1.
         material_.allocate(&defaultMat, sizeof(Material));
         material_.setBindingIndex(0);
 
@@ -282,6 +283,8 @@ struct App : public OpenGLApplication
         // Calculé uniquement la première fois et aux redimentionnements
         projectionMatrix_ = getPerspectiveProjectionMatrix();
 
+        // Spline de Bézier : VAO et VBO alloués une seule fois à la taille maximale.
+        // Le contenu est mis à jour dans sceneMain quand le slider change.
         glGenVertexArrays(1, &vaoBezier_);
         glBindVertexArray(vaoBezier_);
 
@@ -303,7 +306,8 @@ struct App : public OpenGLApplication
         // TODO: Partie 3 : charger la texture des particules, "../textures/smoke.png"
     }
 
-    // Appelée à chaque trame. Le buffer swap est fait juste après.
+    // Appelée à chaque trame (le buffer swap est fait juste après) : efface l'écran,
+    // affiche le panneau de base (scène, rechargement des shaders) et dessine la scène choisie.
     void drawFrame() override
     {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -331,6 +335,15 @@ struct App : public OpenGLApplication
         CHECK_GL_ERROR;
     }
 
+    // Appelée à la fermeture : libère les objets OpenGL créés manuellement.
+    void onClose() override
+    {
+        glDeleteVertexArrays(1, &vaoBezier_);
+        glDeleteBuffers(1, &vboBezier_);
+    }
+
+
+    // ---------- Entrées clavier et souris ----------
     // Appelée lors d'une touche de clavier.
     void onKeyPress(const sf::Event::KeyPressed &key) override
     {
@@ -361,11 +374,13 @@ struct App : public OpenGLApplication
         }
     }
 
+    // Recalcule la projection quand la fenêtre change de taille (le ratio change).
     void onResize(const sf::Event::Resized &event) override
     {
         projectionMatrix_ = getPerspectiveProjectionMatrix();
     }
 
+    // Tourne la caméra avec la souris, seulement si la souris est activée (Espace).
     void onMouseMove(const sf::Event::MouseMoved &mouseDelta) override
     {
         if (!isMouseMotionEnabled_)
@@ -378,6 +393,7 @@ struct App : public OpenGLApplication
         cameraOrientation_.x -= cameraMouvementX * deltaTime_;
     }
 
+    // Déplace et oriente la caméra libre avec le clavier (WASD/QE, flèches).
     void updateCameraInput()
     {
         if (!window_.hasFocus())
@@ -428,6 +444,242 @@ struct App : public OpenGLApplication
         cameraPosition_ += positionOffset * glm::vec3(deltaTime_);
     }
 
+
+    // ---------- Caméra ----------
+    // Matrice de vue : lookAt vers le moulin pendant l'animation sur la spline (cameraMode == 1),
+    // sinon l'inverse de la position et de l'orientation de la caméra libre.
+    glm::mat4 getViewMatrix()
+    {
+        if (cameraMode == 1)
+            return glm::lookAt(cameraPosition_, glm::vec3(0.0f, 2.0f, -10.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        // La vue est l'inverse de la caméra
+        glm::mat4 view = glm::mat4(1.0f);
+
+        view = glm::rotate(view, -cameraOrientation_.x, glm::vec3(1.0f, 0.0f, 0.0f));
+        view = glm::rotate(view, -cameraOrientation_.y, glm::vec3(0.0f, 1.0f, 0.0f));
+        view = glm::translate(view, -cameraPosition_);
+
+        return view;
+    }
+
+    // Projection perspective (70°, plans proche/loin 0.1 et 300).
+    glm::mat4 getPerspectiveProjectionMatrix()
+    {
+        return glm::perspective(glm::radians(70.0f), getWindowAspect(), 0.1f, 300.0f);
+    }
+
+
+    // ---------- Matériaux et éclairage ----------
+    // Envoie au shader Phong le nombre de spots et la lumière ambiante globale.
+    void setLightingUniform()
+    {
+        phongShadingShader_.use();
+        glUniform1i(phongShadingShader_.nSpotLightsULoc, 3);
+
+        float ambientIntensity = 0.05;
+        glUniform3f(phongShadingShader_.globalAmbientULoc, ambientIntensity, ambientIntensity, ambientIntensity);
+    }
+
+    // Allume le soleil le jour, l'éteint la nuit (met à jour lightsData_, pas encore le GPU).
+    void toggleSun()
+    {
+        if (isDay_)
+        {
+            lightsData_.dirLight.ambient = glm::vec4(0.2f, 0.2f, 0.2f, 0.0f);
+            lightsData_.dirLight.diffuse = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+            lightsData_.dirLight.specular = glm::vec4(0.5f, 0.5f, 0.5f, 0.0f);
+        }
+        else
+        {
+            lightsData_.dirLight.ambient = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+            lightsData_.dirLight.diffuse = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+            lightsData_.dirLight.specular = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+        }
+    }
+
+    // Allume les spots la nuit, les éteint le jour (met à jour lightsData_, pas encore le GPU).
+    void toggleSpotlights()
+    {
+        if (isDay_)
+        {
+            for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
+            {
+                lightsData_.spotLights[i].ambient = glm::vec4(glm::vec3(0.0f), 0.0f);
+                lightsData_.spotLights[i].diffuse = glm::vec4(glm::vec3(0.0f), 0.0f);
+                lightsData_.spotLights[i].specular = glm::vec4(glm::vec3(0.0f), 0.0f);
+            }
+        }
+        else
+        {
+            {
+                const glm::vec3 SPOT_COLORS[N_SPOTLIGHTS] = {
+                    glm::vec3(1.0f, 0.0f, 0.0f), // rouge
+                    glm::vec3(0.0f, 0.0f, 1.0f), // bleu
+                    glm::vec3(1.0f, 1.0f, 1.0f)  // blanc
+                };
+
+                for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
+                {
+                    lightsData_.spotLights[i].ambient = glm::vec4(SPOT_COLORS[i] * 0.02f, 0.0f);
+                    lightsData_.spotLights[i].diffuse = glm::vec4(SPOT_COLORS[i] * 0.8f, 0.0f);
+                    lightsData_.spotLights[i].specular = glm::vec4(SPOT_COLORS[i] * 0.4f, 0.0f);
+                }
+            }
+        }
+    }
+
+    // Change le matériau actif en mettant à jour l'uniform buffer.
+    void setMaterial(Material &mat)
+    {
+        material_.updateData(&mat, 0, sizeof(Material));
+    }
+
+
+    // ---------- Scène principale ----------
+    // Scène principale, appelée à chaque trame : panneau de contrôle, caméra, spline,
+    // puis dessin (opaques, ciel, clôtures) et particules.
+    void sceneMain()
+    {
+        // Panneau de contrôle : jour/nuit, vent, spline et animation de la caméra.
+        ImGui::Begin("Scene Parameters");
+        if (ImGui::Button("Toggle Day/Night"))
+        {
+            isDay_ = !isDay_;
+            toggleSun();
+            toggleSpotlights();
+            lights_.updateData(&lightsData_, 0, sizeof(DirectionalLight) + N_SPOTLIGHTS * sizeof(SpotLight));
+        }
+        ImGui::SliderFloat("Wind Speed", &windmill_.windSpeed, 0.0f, 20.0f, "%.2f m/s");
+        ImGui::SliderFloat("Wind Angle", &windmill_.windAngle, -M_PI, M_PI, "%.2f°");
+        ImGui::SliderInt("Bezier Number Of Points", (int *)&bezierNPoints, 0, MAX_BEZIER_EXTRA_POINTS);
+        if (ImGui::Button("Animate Camera"))
+        {
+            isAnimatingCamera = true;
+            cameraMode = 1;
+        }
+        ImGui::End();
+
+        // Caméra libre au clavier/souris, sauf pendant l'animation sur la spline.
+        if (!isAnimatingCamera)
+            updateCameraInput();
+
+        windmill_.update(deltaTime_);
+
+        // Animation : cameraAnimation va de 0 à 5, une unité par courbe (3 s chacune).
+        if (isAnimatingCamera)
+        {
+            if (cameraAnimation < 5)
+            {
+                unsigned int index = static_cast<unsigned int>(cameraAnimation); // partie entière de cameraAnimation
+                float t = cameraAnimation - index; // partie fractionnaire
+                cameraPosition_ = evaluateBezier(curves[index], t);
+
+                cameraAnimation += deltaTime_ / 3.0;
+            }
+            else
+            {
+                cameraPosition_ = curves[4].p1;
+
+                // Remise à 0 de l'orientation
+                glm::vec3 distance = glm::vec3(0, 2, -10) - cameraPosition_;
+
+                float horizontalDistance = sqrt(distance.x * distance.x + distance.z * distance.z);
+
+                cameraOrientation_.y = atan2(-distance.x, -distance.z);
+                cameraOrientation_.x = atan2(distance.y, horizontalDistance);
+
+                cameraAnimation = 0.f;
+                isAnimatingCamera = false;
+                cameraMode = 0;
+            }
+        }
+
+        // La spline n'est recalculée et renvoyée au GPU que si le slider a changé.
+        bool hasNumberOfSidesChanged = bezierNPoints != oldBezierNPoints;
+        if (hasNumberOfSidesChanged)
+        {
+            oldBezierNPoints = bezierNPoints;
+
+            std::vector<glm::vec3> points;
+
+            for (const BezierCurve &curve : curves)
+                for (unsigned int i = 0; i <= bezierNPoints + 1; i++)
+                {
+                    float t = float(i) / (bezierNPoints + 1);
+                    points.push_back(evaluateBezier(curve, t));
+                }
+
+            glBindBuffer(GL_ARRAY_BUFFER, vboBezier_);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, points.size() * sizeof(glm::vec3), points.data());
+        }
+
+        // Rendu : objets opaques, ciel, puis objets transparents.
+        glm::mat4 view = getViewMatrix();
+
+        // Produit projection * vue calculé UNE SEULE FOIS par trame, puis réutilisé
+        glm::mat4 projView = projectionMatrix_ * view;
+
+        // Objets opaques d'abord
+        phongShadingShader_.use();
+        setMaterial(defaultMat);
+
+        windmillTexture_.use();
+        windmill_.draw(projView, view);
+
+        drawGround(projView, view);
+
+        drawSpotlights(projView, view);
+
+        drawBezier(projView);
+
+        // TODO: Partie 2 : dessiner l'herbe (grassMat)
+
+        // Ciel après les opaques : il ne remplit que les pixels encore vides
+        skyShader_.use();
+
+        glm::mat4 skyMvp = projectionMatrix_ * glm::mat4(glm::mat3(view));
+        glUniformMatrix4fv(skyShader_.mvpULoc, 1, GL_FALSE, glm::value_ptr(skyMvp));
+
+        if (isDay_)
+            skyboxTexture_.use();
+        else
+            skyboxNightTexture_.use();
+
+        glDepthFunc(GL_LEQUAL);
+        skybox_.draw();
+        glDepthFunc(GL_LESS);
+        phongShadingShader_.use();
+
+        // Clôtures transparentes en dernier, pour se mélanger avec ce qui est derrière
+        drawFences(projView, view);
+
+        // Partie 3 : particules, dessinées après les objets opaques car leur texture est transparente.
+        totalTime += deltaTime_;
+        timerParticles_ += deltaTime_;
+        const float particlesSpawnInterval = 0.2f;
+
+        unsigned int particlesToAdd = timerParticles_ / particlesSpawnInterval;
+        timerParticles_ -= particlesToAdd * particlesSpawnInterval;
+
+        nParticles_ += particlesToAdd;
+        if (nParticles_ > MAX_PARTICLES_)
+            nParticles_ = MAX_PARTICLES_;
+
+        // TODO: Partie 3 : mise à jour des particules avec le compute shader.
+        //       Envoyer les uniforms, configurer les buffers d'entrée et de sortie, puis glDispatchCompute.
+        //       Utiliser la position de la meule pour la position et la direction d'émission.
+        // glm::vec3 emitterPos = glm::vec3(0.0, 0.0, 0.0);
+        // glm::vec3 emitterDir = glm::vec3(1, 0, 0);
+
+        // TODO: Partie 3 : dessin des particules (nParticles_ particules, buffer en entrée comme source d'attributs).
+        //       Activer le blending, désactiver l'écriture de profondeur, puis restaurer l'état.
+
+        // TODO: Partie 3 : interchanger les buffers d'entrée et de sortie
+    }
+
+
+    // ---------- Décor du TP2 : modèles, sol, spots, clôtures ----------
+    // Charge les modèles .ply (moulin, clôture, spot, ciel) et crée le sol.
     void loadModels()
     {
         windmill_.loadModels();
@@ -438,6 +690,47 @@ struct App : public OpenGLApplication
         grass_.load(ground, sizeof(ground), planeElements, sizeof(planeElements));
     }
 
+    // Sol : carré de 50 x 50 texturé avec l'herbe, légèrement sous l'origine.
+    void drawGround(glm::mat4 &projView, glm::mat4 &view)
+    {
+        // Carré unitaire agrandi à 50 x 50 et abaissé de 0.1.
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, -0.1f, 0.0f));
+        model = glm::scale(model, glm::vec3(50.0f, 1.0f, 50.0f));
+
+        glm::mat4 mvp = projView * model;
+
+        setMaterial(grassMat);
+        phongShadingShader_.setMatrices(mvp, view, model);
+        grassTexture_.use();
+        grass_.draw();
+    }
+
+    // Dessine les petits modèles de spots aux positions des lumières.
+    void drawSpotlights(glm::mat4 &projView, glm::mat4 &view)
+    {
+        whiteTexture_.use();
+
+        for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
+        {
+            Material spotMat = defaultMat;
+            spotMat.ambient = glm::vec4(0.0f);
+            spotMat.diffuse = glm::vec4(0.0f);
+            spotMat.specular = glm::vec3(0.0f);
+            spotMat.emission = lightsData_.spotLights[i].diffuse;
+            setMaterial(spotMat);
+
+            glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(lightsData_.spotLights[i].position));
+            glm::mat4 mvp = projView * model;
+            phongShadingShader_.setMatrices(mvp, view, model);
+            spotlight_.draw();
+        }
+
+        setMaterial(defaultMat);
+    }
+
+    // Dessine les clôtures du plus loin au plus proche (transparence), avec l'effet de contour
+    // par stencil.
     void drawFences(glm::mat4 &projView, glm::mat4 &view)
     {
         const glm::vec3 FENCES_POSITIONS[] =
@@ -537,43 +830,9 @@ struct App : public OpenGLApplication
         glEnable(GL_CULL_FACE);
     }
 
-    void drawGround(glm::mat4 &projView, glm::mat4 &view)
-    {
-        // Carré unitaire agrandi à 50 x 50 et abaissé de 0.1.
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, -0.1f, 0.0f));
-        model = glm::scale(model, glm::vec3(50.0f, 1.0f, 50.0f));
 
-        glm::mat4 mvp = projView * model;
-
-        setMaterial(grassMat);
-        phongShadingShader_.setMatrices(mvp, view, model);
-        grassTexture_.use();
-        grass_.draw();
-    }
-
-    void drawSpotlights(glm::mat4 &projView, glm::mat4 &view)
-    {
-        whiteTexture_.use();
-
-        for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
-        {
-            Material spotMat = defaultMat;
-            spotMat.ambient = glm::vec4(0.0f);
-            spotMat.diffuse = glm::vec4(0.0f);
-            spotMat.specular = glm::vec3(0.0f);
-            spotMat.emission = lightsData_.spotLights[i].diffuse;
-            setMaterial(spotMat);
-
-            glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(lightsData_.spotLights[i].position));
-            glm::mat4 mvp = projView * model;
-            phongShadingShader_.setMatrices(mvp, view, model);
-            spotlight_.draw();
-        }
-
-        setMaterial(defaultMat);
-    }
-
+    // ---------- Partie 1 : spline de Bézier ----------
+    // Point de la courbe de Bézier cubique à la position t dans [0, 1] (polynômes de Bernstein).
     glm::vec3 evaluateBezier(const BezierCurve &curve, float t)
     {
         // B(t) = (1-t)³·p0 + 3(1-t)²·t·c0 + 3(1-t)·t²·c1 + t³·p1
@@ -583,6 +842,7 @@ struct App : public OpenGLApplication
         return (u * u * u * curve.p0) + (3 * u * u * t * curve.c0) + (3 * u * t * t * curve.c1) + (t * t * t * curve.p1);
     }
 
+    // Dessine la spline : une ligne par courbe, couleur unie.
     void drawBezier(glm::mat4 &projView)
     {
         bezierShader_.use();
@@ -593,241 +853,38 @@ struct App : public OpenGLApplication
             glDrawArrays(GL_LINE_STRIP, c * (bezierNPoints + 2), bezierNPoints + 2);
     }
 
-    glm::mat4 getViewMatrix()
-    {
-        if (cameraMode == 1)
-            return glm::lookAt(cameraPosition_, glm::vec3(0.0f, 2.0f, -10.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        // La vue est l'inverse de la caméra
-        glm::mat4 view = glm::mat4(1.0f);
 
-        view = glm::rotate(view, -cameraOrientation_.x, glm::vec3(1.0f, 0.0f, 0.0f));
-        view = glm::rotate(view, -cameraOrientation_.y, glm::vec3(0.0f, 1.0f, 0.0f));
-        view = glm::translate(view, -cameraPosition_);
+    // ---------- Partie 2 : herbe (tessellation et géométrie) ----------
+    // TODO: méthodes de la partie 2 (génération du mesh de patches, dessin de l'herbe)
 
-        return view;
-    }
-
-    glm::mat4 getPerspectiveProjectionMatrix()
-    {
-        return glm::perspective(glm::radians(70.0f), getWindowAspect(), 0.1f, 300.0f);
-    }
-
-    void setLightingUniform()
-    {
-        phongShadingShader_.use();
-        glUniform1i(phongShadingShader_.nSpotLightsULoc, 3);
-
-        float ambientIntensity = 0.05;
-        glUniform3f(phongShadingShader_.globalAmbientULoc, ambientIntensity, ambientIntensity, ambientIntensity);
-    }
-
-    void toggleSun()
-    {
-        if (isDay_)
-        {
-            lightsData_.dirLight.ambient = glm::vec4(0.2f, 0.2f, 0.2f, 0.0f);
-            lightsData_.dirLight.diffuse = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
-            lightsData_.dirLight.specular = glm::vec4(0.5f, 0.5f, 0.5f, 0.0f);
-        }
-        else
-        {
-            lightsData_.dirLight.ambient = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
-            lightsData_.dirLight.diffuse = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
-            lightsData_.dirLight.specular = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
-        }
-    }
-
-    void toggleSpotlights()
-    {
-        if (isDay_)
-        {
-            for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
-            {
-                lightsData_.spotLights[i].ambient = glm::vec4(glm::vec3(0.0f), 0.0f);
-                lightsData_.spotLights[i].diffuse = glm::vec4(glm::vec3(0.0f), 0.0f);
-                lightsData_.spotLights[i].specular = glm::vec4(glm::vec3(0.0f), 0.0f);
-            }
-        }
-        else
-        {
-            {
-                const glm::vec3 SPOT_COLORS[N_SPOTLIGHTS] = {
-                    glm::vec3(1.0f, 0.0f, 0.0f), // rouge
-                    glm::vec3(0.0f, 0.0f, 1.0f), // bleu
-                    glm::vec3(1.0f, 1.0f, 1.0f)  // blanc
-                };
-
-                for (unsigned int i = 0; i < N_SPOTLIGHTS; i++)
-                {
-                    lightsData_.spotLights[i].ambient = glm::vec4(SPOT_COLORS[i] * 0.02f, 0.0f);
-                    lightsData_.spotLights[i].diffuse = glm::vec4(SPOT_COLORS[i] * 0.8f, 0.0f);
-                    lightsData_.spotLights[i].specular = glm::vec4(SPOT_COLORS[i] * 0.4f, 0.0f);
-                }
-            }
-        }
-    }
-
-    void setMaterial(Material &mat)
-    {
-        material_.updateData(&mat, 0, sizeof(Material));
-    }
-
-    void sceneMain()
-    {
-        ImGui::Begin("Scene Parameters");
-        if (ImGui::Button("Toggle Day/Night"))
-        {
-            isDay_ = !isDay_;
-            toggleSun();
-            toggleSpotlights();
-            lights_.updateData(&lightsData_, 0, sizeof(DirectionalLight) + N_SPOTLIGHTS * sizeof(SpotLight));
-        }
-        ImGui::SliderFloat("Wind Speed", &windmill_.windSpeed, 0.0f, 20.0f, "%.2f m/s");
-        ImGui::SliderFloat("Wind Angle", &windmill_.windAngle, -M_PI, M_PI, "%.2f°");
-        ImGui::SliderInt("Bezier Number Of Points", (int *)&bezierNPoints, 0, MAX_BEZIER_EXTRA_POINTS);
-        if (ImGui::Button("Animate Camera"))
-        {
-            isAnimatingCamera = true;
-            cameraMode = 1;
-        }
-        ImGui::End();
-
-        if (!isAnimatingCamera)
-            updateCameraInput();
-
-        windmill_.update(deltaTime_);
-
-        if (isAnimatingCamera)
-        {
-            if (cameraAnimation < 5)
-            {
-                unsigned int index = static_cast<unsigned int>(cameraAnimation); // partie entière de cameraAnimation
-                float t = cameraAnimation - index; // partie fractionnaire
-                cameraPosition_ = evaluateBezier(curves[index], t);
-
-                cameraAnimation += deltaTime_ / 3.0;
-            }
-            else
-            {
-                cameraPosition_ = curves[4].p1;
-
-                // Remise à 0 de l'orientation
-                glm::vec3 distance = glm::vec3(0, 2, -10) - cameraPosition_;
-
-                float horizontalDistance = sqrt(distance.x * distance.x + distance.z * distance.z);
-
-                cameraOrientation_.y = atan2(-distance.x, -distance.z);
-                cameraOrientation_.x = atan2(distance.y, horizontalDistance);
-
-                cameraAnimation = 0.f;
-                isAnimatingCamera = false;
-                cameraMode = 0;
-            }
-        }
-
-        bool hasNumberOfSidesChanged = bezierNPoints != oldBezierNPoints;
-        if (hasNumberOfSidesChanged)
-        {
-            oldBezierNPoints = bezierNPoints;
-
-            std::vector<glm::vec3> points;
-
-            for (const BezierCurve &curve : curves)
-                for (unsigned int i = 0; i <= bezierNPoints + 1; i++)
-                {
-                    float t = float(i) / (bezierNPoints + 1);
-                    points.push_back(evaluateBezier(curve, t));
-                }
-
-            glBindBuffer(GL_ARRAY_BUFFER, vboBezier_);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, points.size() * sizeof(glm::vec3), points.data());
-        }
-
-        glm::mat4 view = getViewMatrix();
-
-        // Produit projection * vue calculé UNE SEULE FOIS par trame, puis réutilisé
-        glm::mat4 projView = projectionMatrix_ * view;
-
-        // Objets opaques d'abord
-        phongShadingShader_.use();
-        setMaterial(defaultMat);
-
-        windmillTexture_.use();
-        windmill_.draw(projView, view);
-
-        drawGround(projView, view);
-
-        drawSpotlights(projView, view);
-
-        drawBezier(projView);
-
-        // TODO: Partie 2 : dessiner l'herbe (grassMat)
-
-        // Ciel après les opaques : il ne remplit que les pixels encore vides
-        skyShader_.use();
-
-        glm::mat4 skyMvp = projectionMatrix_ * glm::mat4(glm::mat3(view));
-        glUniformMatrix4fv(skyShader_.mvpULoc, 1, GL_FALSE, glm::value_ptr(skyMvp));
-
-        if (isDay_)
-            skyboxTexture_.use();
-        else
-            skyboxNightTexture_.use();
-
-        glDepthFunc(GL_LEQUAL);
-        skybox_.draw();
-        glDepthFunc(GL_LESS);
-        phongShadingShader_.use();
-
-        // Clôtures transparentes en dernier, pour se mélanger avec ce qui est derrière
-        drawFences(projView, view);
-
-        // Partie 3 : particules, dessinées après les objets opaques car leur texture est transparente.
-        totalTime += deltaTime_;
-        timerParticles_ += deltaTime_;
-        const float particlesSpawnInterval = 0.2f;
-
-        unsigned int particlesToAdd = timerParticles_ / particlesSpawnInterval;
-        timerParticles_ -= particlesToAdd * particlesSpawnInterval;
-
-        nParticles_ += particlesToAdd;
-        if (nParticles_ > MAX_PARTICLES_)
-            nParticles_ = MAX_PARTICLES_;
-
-        // TODO: Partie 3 : mise à jour des particules avec le compute shader.
-        //       Envoyer les uniforms, configurer les buffers d'entrée et de sortie, puis glDispatchCompute.
-        //       Utiliser la position de la meule pour la position et la direction d'émission.
-        // glm::vec3 emitterPos = glm::vec3(0.0, 0.0, 0.0);
-        // glm::vec3 emitterDir = glm::vec3(1, 0, 0);
-
-        // TODO: Partie 3 : dessin des particules (nParticles_ particules, buffer en entrée comme source d'attributs).
-        //       Activer le blending, désactiver l'écriture de profondeur, puis restaurer l'état.
-
-        // TODO: Partie 3 : interchanger les buffers d'entrée et de sortie
-    }
-
-    void onClose() override
-    {
-        glDeleteVertexArrays(1, &vaoBezier_);
-        glDeleteBuffers(1, &vboBezier_);
-    }
+    // ---------- Partie 3 : particules (compute shader) ----------
+    // TODO: méthodes de la partie 3 (mise à jour et dessin des particules)
 
 private:
-    // Shaders
+    // ---------- Shaders ----------
     EdgeEffect edgeEffectShader_;
     PhongShading phongShadingShader_;
     Sky skyShader_;
     Bezier bezierShader_;
+    // TODO: Partie 2-3 : ajouter les shaders (herbe, dessin et mise à jour des particules)
 
-    // Textures
+    // ---------- Textures ----------
     Texture2D grassTexture_;
     Texture2D fenceTexture_;
     Texture2D windmillTexture_;
     Texture2D whiteTexture_;
     TextureCubeMap skyboxTexture_;
     TextureCubeMap skyboxNightTexture_;
+    // TODO: Partie 3 : ajouter la texture des particules
 
-    // Uniform buffers
+    // ---------- Modèles ----------
+    Model grass_;
+    Model fence_;
+    Model spotlight_;
+    Model skybox_;
+    Windmill windmill_;
+
+    // ---------- Matériaux et éclairage ----------
     UniformBuffer material_;
     UniformBuffer lights_;
 
@@ -837,19 +894,26 @@ private:
         SpotLight spotLights[8];
     } lightsData_;
 
+    static constexpr unsigned int N_SPOTLIGHTS = 3;
     bool isDay_;
 
-    Model grass_;
-    Model fence_;
-    Model spotlight_;
-    Model skybox_;
-
-    Windmill windmill_;
-
+    // ---------- Caméra et entrées ----------
     glm::vec3 cameraPosition_;
     glm::vec2 cameraOrientation_;
+    glm::mat4 projectionMatrix_;
+    bool isMouseMotionEnabled_;
 
-    // Partie 1 : spline de Bézier
+    int cameraMode = 0; // 0 : caméra libre, 1 : animation sur la spline
+    float cameraAnimation = 0.f;
+    bool isAnimatingCamera = false;
+
+    // ---------- Interface ImGui ----------
+    const char *const SCENE_NAMES[1] = {
+        "Main scene"};
+    const int N_SCENE_NAMES = sizeof(SCENE_NAMES) / sizeof(SCENE_NAMES[0]);
+    int currentScene_;
+
+    // ---------- Partie 1 : spline de Bézier ----------
     static constexpr unsigned int N_CURVES = 5;
     static constexpr unsigned int MAX_BEZIER_EXTRA_POINTS = 16;
     unsigned int bezierNPoints = 3; // Nombre de points supplémentaires sur la courbe, 0 est une ligne droite
@@ -857,24 +921,10 @@ private:
     GLuint vaoBezier_;
     GLuint vboBezier_;
 
-    int cameraMode = 0;
-    float cameraAnimation = 0.f;
-    bool isAnimatingCamera = false;
+    // ---------- Partie 2 : herbe ----------
+    // TODO: Partie 2 : ajouter les attributs vao, vbo, ebo des patches d'herbe
 
-    // TODO: Partie 1-2 : ajouter les attributs vao, vbo, ebo nécessaires (spline et patches d'herbe)
-
-    static constexpr unsigned int N_SPOTLIGHTS = 3;
-
-    // Imgui var
-    const char *const SCENE_NAMES[1] = {
-        "Main scene"};
-    const int N_SCENE_NAMES = sizeof(SCENE_NAMES) / sizeof(SCENE_NAMES[0]);
-    int currentScene_;
-
-    bool isMouseMotionEnabled_;
-    glm::mat4 projectionMatrix_;
-
-    // Partie 3 : particules
+    // ---------- Partie 3 : particules ----------
     float totalTime;
     float timerParticles_;
 
@@ -883,9 +933,6 @@ private:
 
     GLuint vaoParticles_;
     ShaderStorageBuffer particles_[2];
-
-    // TODO: Partie 1-2-3 : ajouter les shaders (courbe, herbe, dessin et mise à jour des particules)
-    // TODO: Partie 3 : ajouter la texture des particules
 };
 
 int main(int argc, char *argv[])

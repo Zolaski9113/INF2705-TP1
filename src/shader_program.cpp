@@ -2,7 +2,7 @@
 
 #include <iostream>
 
-#include "utils.hpp"
+#include <inf2705/utils.hpp>
 
 
 static bool checkShaderCompilingError(const char* name, GLuint id)

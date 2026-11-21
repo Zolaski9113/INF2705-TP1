@@ -203,6 +203,12 @@ struct App : public OpenGLApplication
 
         windmill_.phongShadingShader = &phongShadingShader_;
 
+        grassShader_.create();
+        wheatTexture_.load("../textures/wheat_crop.png");
+        wheatTexture_.setFiltering(GL_LINEAR);
+        wheatTexture_.setWrap(GL_CLAMP_TO_EDGE);
+        wheatTexture_.enableMipmap();
+
         // Chargement des différentes textures
         grassTexture_.load("../textures/grass.jpg");
         grassTexture_.setFiltering(GL_LINEAR);
@@ -297,6 +303,7 @@ struct App : public OpenGLApplication
         glBindVertexArray(0);
 
         // TODO: Partie 2 : générer le mesh des patches triangulaires qui couvre le sol (VAO, VBO, EBO)
+        generateGrassPatches();
 
         // TODO: Partie 3 : allouer les deux SSBO pour MAX_PARTICLES_ particules.
         //       Seul le buffer en entrée est initialisé à 0. Réfléchir au type d'usage.
@@ -322,6 +329,7 @@ struct App : public OpenGLApplication
             phongShadingShader_.reload();
             skyShader_.reload();
             bezierShader_.reload();
+            grassShader_.reload();
             setLightingUniform();
         }
         ImGui::End();
@@ -340,6 +348,9 @@ struct App : public OpenGLApplication
     {
         glDeleteVertexArrays(1, &vaoBezier_);
         glDeleteBuffers(1, &vboBezier_);
+        glDeleteVertexArrays(1, &vaoGrassPatches_);
+        glDeleteBuffers(1, &vboGrassPatches_);
+        glDeleteBuffers(1, &eboGrassPatches_);
     }
 
 
@@ -633,6 +644,7 @@ struct App : public OpenGLApplication
         drawBezier(projView);
 
         // TODO: Partie 2 : dessiner l'herbe (grassMat)
+        drawGrassPatches(projView, view);
 
         // Ciel après les opaques : il ne remplit que les pixels encore vides
         skyShader_.use();
@@ -857,6 +869,99 @@ struct App : public OpenGLApplication
     // ---------- Partie 2 : herbe (tessellation et géométrie) ----------
     // TODO: méthodes de la partie 2 (génération du mesh de patches, dessin de l'herbe)
 
+    void generateGrassPatches()
+    {
+        const int GRID_DIV = 10;
+        const float HALF_SIZE = 25.0f;
+        const float STEP = (2.0f * HALF_SIZE) / GRID_DIV;
+        const float Y_GROUND = -0.1f;
+
+        std::vector<glm::vec3> vertices;
+        std::vector<unsigned int> indices;
+
+        for (int iz = 0; iz <= GRID_DIV; ++iz)
+        {
+            for (int ix = 0; ix <= GRID_DIV; ++ix)
+            {
+                float x = -HALF_SIZE + ix * STEP;
+                float z = -HALF_SIZE + iz * STEP;
+                vertices.emplace_back(x, Y_GROUND, z);
+            }
+        }
+
+        for (int iz = 0; iz < GRID_DIV; ++iz)
+        {
+            for (int ix = 0; ix < GRID_DIV; ++ix)
+            {
+                float cellCenterX = -HALF_SIZE + (ix + 0.5f) * STEP;
+                float cellCenterZ = -HALF_SIZE + (iz + 0.5f) * STEP;
+
+                // Exclure l'enclos du moulin (x in [-10, 10], z in [-20, 5]) et le chemin avant (x in [-5, 5], z >= 5)
+                bool inEnclosure = (cellCenterX > -10.0f && cellCenterX < 10.0f && cellCenterZ > -20.0f && cellCenterZ < 5.0f);
+                bool inFrontPath = (cellCenterX > -5.0f && cellCenterX < 5.0f && cellCenterZ >= 5.0f);
+
+                if (inEnclosure || inFrontPath)
+                    continue;
+
+                unsigned int topLeft = iz * (GRID_DIV + 1) + ix;
+                unsigned int topRight = topLeft + 1;
+                unsigned int bottomLeft = (iz + 1) * (GRID_DIV + 1) + ix;
+                unsigned int bottomRight = bottomLeft + 1;
+
+                // Deux triangles anti-horaires par carré
+                indices.push_back(topLeft);
+                indices.push_back(bottomLeft);
+                indices.push_back(topRight);
+
+                indices.push_back(topRight);
+                indices.push_back(bottomLeft);
+                indices.push_back(bottomRight);
+            }
+        }
+
+        nGrassIndices_ = static_cast<GLsizei>(indices.size());
+
+        glGenVertexArrays(1, &vaoGrassPatches_);
+        glBindVertexArray(vaoGrassPatches_);
+
+        glGenBuffers(1, &vboGrassPatches_);
+        glBindBuffer(GL_ARRAY_BUFFER, vboGrassPatches_);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(glm::vec3), vertices.data(), GL_STATIC_DRAW);
+
+        glGenBuffers(1, &eboGrassPatches_);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, eboGrassPatches_);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+        glEnableVertexAttribArray(0);
+
+        glBindVertexArray(0);
+    }
+
+    void drawGrassPatches(glm::mat4& projView, glm::mat4& view)
+    {
+        grassShader_.use();
+        setMaterial(grassMat);
+        wheatTexture_.use();
+
+        glm::mat4 model = glm::mat4(1.0f);
+        glm::mat4 mvp = projView * model;
+        glm::mat4 modelView = view * model;
+
+        glUniformMatrix4fv(grassShader_.mvpULoc, 1, GL_FALSE, glm::value_ptr(mvp));
+        glUniformMatrix4fv(grassShader_.modelViewULoc, 1, GL_FALSE, glm::value_ptr(modelView));
+
+        // E5 : Les brins d'herbe doivent être visibles des deux côtés
+        glDisable(GL_CULL_FACE);
+
+        glPatchParameteri(GL_PATCH_VERTICES, 3);
+        glBindVertexArray(vaoGrassPatches_);
+        glDrawElements(GL_PATCHES, nGrassIndices_, GL_UNSIGNED_INT, nullptr);
+        glBindVertexArray(0);
+
+        glEnable(GL_CULL_FACE);
+    }
+
     // ---------- Partie 3 : particules (compute shader) ----------
     // TODO: méthodes de la partie 3 (mise à jour et dessin des particules)
 
@@ -867,6 +972,8 @@ private:
     Sky skyShader_;
     Bezier bezierShader_;
     // TODO: Partie 2-3 : ajouter les shaders (herbe, dessin et mise à jour des particules)
+    Grass grassShader_;
+    Texture2D wheatTexture_;
 
     // ---------- Textures ----------
     Texture2D grassTexture_;
@@ -923,6 +1030,10 @@ private:
 
     // ---------- Partie 2 : herbe ----------
     // TODO: Partie 2 : ajouter les attributs vao, vbo, ebo des patches d'herbe
+    GLuint vaoGrassPatches_ = 0;
+    GLuint vboGrassPatches_ = 0;
+    GLuint eboGrassPatches_ = 0;
+    GLsizei nGrassIndices_ = 0;
 
     // ---------- Partie 3 : particules ----------
     float totalTime;

@@ -1,4 +1,3 @@
-
 #version 430 core
 
 in ATTRIB_GS_OUT
@@ -13,16 +12,12 @@ uniform sampler2D textureSampler;
 
 void main()
 {
-    vec4 texel = texture(
-        textureSampler,
-        attribIn.texCoord
-    );
+    vec4 texel = texture(textureSampler, attribIn.texCoord);
 
-    // Ignorer les fragments presque transparents
-    if (texel.a * attribIn.color.a < 0.02)
+    // Texels invisibles : on ne les traite pas
+    if (texel.a < 0.02)
         discard;
 
-    // Teinter la texture avec la couleur
-    // de la particule
+    // Texture teintée par la couleur de la particule (l'alpha porte aussi le fondu)
     FragColor = texel * attribIn.color;
 }

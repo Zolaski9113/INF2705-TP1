@@ -45,19 +45,32 @@ void Windmill::update(float deltaTime)
     roofAngle += TSR / RADIUS * (windAngle - roofAngle) * angularSpeed * deltaTime;
 }
 
-void Windmill::draw(glm::mat4 &projView, glm::mat4 &view)
+// Repère de base du moulin dans le monde : placé en z = -10, agrandi 5x, posé sur le sol.
+glm::mat4 Windmill::getBaseMatrix() const
 {
     glm::mat4 base = glm::mat4(1.0f);
     base = glm::translate(base, glm::vec3(0.0f, 0.0f, -10.0f));
     base = glm::scale(base, glm::vec3(5.0f));
     base = glm::translate(base, glm::vec3(0.0f, 0.06f, 0.0f));
+    return base;
+}
+
+// Mât principal au centre, 5 fois plus rapide que le rotor. Sert aussi d'émetteur aux particules.
+glm::mat4 Windmill::getMainBeamMatrix() const
+{
+    return glm::rotate(getBaseMatrix(), rotorAngle * 5.0f, glm::vec3(0.0f, 1.0f, 0.0f));
+}
+
+void Windmill::draw(glm::mat4 &projView, glm::mat4 &view)
+{
+    glm::mat4 base = getBaseMatrix();
 
     glm::mat4 mvp = projView * base;
     phongShadingShader->setMatrices(mvp, view, base);
     walls_.draw();
 
     drawRoofAndRotor(projView, view, base);
-    drawMechanism(projView, view, base);
+    drawMechanism(projView, view);
 }
 
 void Windmill::drawRoofAndRotor(glm::mat4 &projView, glm::mat4 &view, glm::mat4 baseMat)
@@ -109,10 +122,9 @@ void Windmill::drawBlades(glm::mat4 &projView, glm::mat4 &view, glm::mat4 rotorC
     }
 }
 
-void Windmill::drawMechanism(glm::mat4 &projView, glm::mat4 &view, glm::mat4 baseMat)
+void Windmill::drawMechanism(glm::mat4 &projView, glm::mat4 &view)
 {
-    // Mât principal au centre, 5 fois plus rapide que le rotor.
-    glm::mat4 mainBeam = glm::rotate(baseMat, rotorAngle * 5.0f, glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 mainBeam = getMainBeamMatrix();
     glm::mat4 mvp = projView * mainBeam;
     phongShadingShader->setMatrices(mvp, view, mainBeam);
     mainbeam_.draw();

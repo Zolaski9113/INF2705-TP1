@@ -1,20 +1,12 @@
 #version 330 core
 
-// TODO: À remplir
+// Un point (base du brin) -> un rectangle de 4 sommets
 layout(points) in;
 layout(triangle_strip, max_vertices = 4) out;
 
-in ATTRIBS_TES_OUT
-{
-    // TODO: Ajouter les attributs si nécessaire
-    vec3 worldPos;
-} attribsIn[];
-
 out ATTRIBS_GS_OUT
 {
-    // TODO: Ajouter les attributs si nécessaire
     vec2 texCoords;
-    float heightRatio;
 } attribsOut;
 
 
@@ -27,16 +19,13 @@ float rand(vec2 co){
 
 void main()
 {
-    // TODO: Générer un brin d'herbe à partir du point en entrée
+    // Position monde de la base ; sa position xz sert de graine : un même brin garde sa forme d'une trame à l'autre
     vec3 baseCenter = gl_in[0].gl_Position.xyz;
-    vec2 seed = attribsIn[0].worldPos.xz;
+    vec2 seed = baseCenter.xz;
     const float PI = 3.14159265359;
 
-    // En premier lieu, on pourra générer des rectangles avec le point comme étant le centre
-    // de la base du prime.
-    // Par la suite, on ajoutera un facteur aléatoire de rotation en y [0, 2pi], puis une
-    // rotation en x [0, 0.1pi] pour "plier" les brins. Utiliser le facteur aléatoire.
-
+    // Rotation aléatoire en y [0, 2pi] (orientation), puis en x [0, 0.1pi] pour "plier" le brin.
+    // Décalages différents de la graine => valeurs aléatoires indépendantes.
     float angleY = rand(seed) * 2.0 * PI;
     float angleX = rand(seed + vec2(1.37, 2.91)) * 0.1 * PI;
 
@@ -54,18 +43,18 @@ void main()
 
     mat3 rotation = rotY * rotX;
 
-    // On pourra aussi faire varié la taille avec la taille de base et la variation [0, 0.1].
+    // Taille variable : base + variation aléatoire, en largeur et en hauteur.
     const float baseWidth = 0.5;
     const float varWidth = 0.1;
     float width = baseWidth + rand(seed + vec2(4.19, 0.73)) * varWidth;
     float halfWidth = width * 0.5;
 
-    // Idem avec la hauteur.
     const float baseHeight = 2.4;
     const float varHeight = 0.5;
     float height = baseHeight + rand(seed + vec2(7.53, 5.11)) * varHeight;
-    
-    // Pour finir, émission des différents points. N'oublier pas d'écrire chaque attribut de sortie.
+
+    // Rectangle dans le repère local du brin (base centrée sur le point), émis en triangle strip.
+    // uv.y va de 0 (pied) à 1 (pointe) : sert aussi au dégradé dans le fragment shader.
     vec3 localPositions[4] = vec3[](
         vec3(-halfWidth, 0.0,    0.0), // Bas gauche
         vec3( halfWidth, 0.0,    0.0), // Bas droit
@@ -80,13 +69,10 @@ void main()
         vec2(1.0, 1.0)
     );
 
-    float heights[4] = float[](0.0, 0.0, 1.0, 1.0);
-
     for (int i = 0; i < 4; ++i)
     {
         vec3 worldPos = baseCenter + rotation * localPositions[i];
         attribsOut.texCoords = uvs[i];
-        attribsOut.heightRatio = heights[i];
         gl_Position = mvp * vec4(worldPos, 1.0);
         EmitVertex();
     }

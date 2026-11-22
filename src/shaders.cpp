@@ -112,20 +112,16 @@ void Grass::getAllUniformLocations()
     modelViewULoc = glGetUniformLocation(id_, "modelView");
 }
 
-
 void ParticlesDraw::load()
 {
+    const char* VERTEX_SRC_PATH = "./shaders/particlesDraw.vs.glsl";
+    const char* GEOMETRY_SRC_PATH = "./shaders/particlesDraw.gs.glsl";
+    const char* FRAGMENT_SRC_PATH = "./shaders/particlesDraw.fs.glsl";
+
     name_ = "ParticlesDraw";
-
-    loadShaderSource(GL_VERTEX_SHADER,
-        "./shaders/particlesDraw.vs.glsl");
-
-    loadShaderSource(GL_GEOMETRY_SHADER,
-        "./shaders/particlesDraw.gs.glsl");
-
-    loadShaderSource(GL_FRAGMENT_SHADER,
-        "./shaders/particlesDraw.fs.glsl");
-
+    loadShaderSource(GL_VERTEX_SHADER, VERTEX_SRC_PATH);
+    loadShaderSource(GL_GEOMETRY_SHADER, GEOMETRY_SRC_PATH);
+    loadShaderSource(GL_FRAGMENT_SHADER, FRAGMENT_SRC_PATH);
     link();
 }
 
@@ -138,11 +134,10 @@ void ParticlesDraw::getAllUniformLocations()
 
 void ParticlesUpdate::load()
 {
+    const char* COMPUTE_SRC_PATH = "./shaders/particlesUpdate.cs.glsl";
+
     name_ = "ParticlesUpdate";
-
-    loadShaderSource(GL_COMPUTE_SHADER,
-        "./shaders/particlesUpdate.cs.glsl");
-
+    loadShaderSource(GL_COMPUTE_SHADER, COMPUTE_SRC_PATH);
     link();
 }
 

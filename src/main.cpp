@@ -203,7 +203,10 @@ struct App : public OpenGLApplication
 
         windmill_.phongShadingShader = &phongShadingShader_;
 
+
         grassShader_.create();
+        particlesDrawShader_.create();
+        particlesUpdateShader_.create();
         wheatTexture_.load("../textures/wheat_crop.png");
         wheatTexture_.setFiltering(GL_LINEAR);
         wheatTexture_.setWrap(GL_CLAMP_TO_EDGE);
@@ -305,12 +308,35 @@ struct App : public OpenGLApplication
         // TODO: Partie 2 : générer le mesh des patches triangulaires qui couvre le sol (VAO, VBO, EBO)
         generateGrassPatches();
 
-        // TODO: Partie 3 : allouer les deux SSBO pour MAX_PARTICLES_ particules.
-        //       Seul le buffer en entrée est initialisé à 0. Réfléchir au type d'usage.
 
-        // TODO: Partie 3 : créer le VAO pour le dessin des particules et activer les attributs nécessaires
+        std::array<Particle, MAX_PARTICLES_> initialParticles{};
 
-        // TODO: Partie 3 : charger la texture des particules, "../textures/smoke.png"
+        // Allocation des deux buffers de particules
+        particles_[0].allocate(
+            initialParticles.data(),
+            sizeof(initialParticles),
+            GL_DYNAMIC_COPY
+        );
+
+        particles_[1].allocate(
+            initialParticles.data(),
+            sizeof(initialParticles),
+            GL_DYNAMIC_COPY
+        );
+
+        // Création du VAO
+        glGenVertexArrays(1, &vaoParticles_);
+        glBindVertexArray(vaoParticles_);
+
+        // Les attributs seront configurés lors du dessin,
+        // car le buffer source change à chaque frame.
+        glBindVertexArray(0);
+
+        // Chargement de la texture des particules
+        particlesTexture_.load("../textures/smoke.png");
+        particlesTexture_.setFiltering(GL_LINEAR);
+        particlesTexture_.setWrap(GL_CLAMP_TO_EDGE);
+
     }
 
     // Appelée à chaque trame (le buffer swap est fait juste après) : efface l'écran,
@@ -330,6 +356,8 @@ struct App : public OpenGLApplication
             skyShader_.reload();
             bezierShader_.reload();
             grassShader_.reload();
+            particlesDrawShader_.reload();
+            particlesUpdateShader_.reload();
             setLightingUniform();
         }
         ImGui::End();
@@ -351,6 +379,8 @@ struct App : public OpenGLApplication
         glDeleteVertexArrays(1, &vaoGrassPatches_);
         glDeleteBuffers(1, &vboGrassPatches_);
         glDeleteBuffers(1, &eboGrassPatches_);
+        glDeleteVertexArrays(1, &vaoParticles_);
+
     }
 
 
@@ -662,32 +692,78 @@ struct App : public OpenGLApplication
         glDepthFunc(GL_LESS);
         phongShadingShader_.use();
 
-        // Clôtures transparentes en dernier, pour se mélanger avec ce qui est derrière
+
+        // Clôtures transparentes
         drawFences(projView, view);
 
-        // Partie 3 : particules, dessinées après les objets opaques car leur texture est transparente.
+        // ---------- Partie 3 : particules ----------
+
         totalTime += deltaTime_;
         timerParticles_ += deltaTime_;
+
         const float particlesSpawnInterval = 0.2f;
 
-        unsigned int particlesToAdd = timerParticles_ / particlesSpawnInterval;
-        timerParticles_ -= particlesToAdd * particlesSpawnInterval;
+        unsigned int particlesToAdd =
+            timerParticles_ / particlesSpawnInterval;
+
+        timerParticles_ -=
+            particlesToAdd * particlesSpawnInterval;
 
         nParticles_ += particlesToAdd;
+
         if (nParticles_ > MAX_PARTICLES_)
             nParticles_ = MAX_PARTICLES_;
 
-        // TODO: Partie 3 : mise à jour des particules avec le compute shader.
-        //       Envoyer les uniforms, configurer les buffers d'entrée et de sortie, puis glDispatchCompute.
-        //       Utiliser la position de la meule pour la position et la direction d'émission.
-        // glm::vec3 emitterPos = glm::vec3(0.0, 0.0, 0.0);
-        // glm::vec3 emitterDir = glm::vec3(1, 0, 0);
+        // Position et direction d'émission
 
-        // TODO: Partie 3 : dessin des particules (nParticles_ particules, buffer en entrée comme source d'attributs).
-        //       Activer le blending, désactiver l'écriture de profondeur, puis restaurer l'état.
+        // Transformation de base du moulin
+        glm::mat4 base(1.0f);
+        base = glm::translate(
+            base, glm::vec3(0.0f, 0.0f, -10.0f)
+        );
+        base = glm::scale(base, glm::vec3(5.0f));
+        base = glm::translate(
+            base, glm::vec3(0.0f, 0.06f, 0.0f)
+        );
 
-        // TODO: Partie 3 : interchanger les buffers d'entrée et de sortie
+        // Rotation du bras qui transporte la meule
+        glm::mat4 mainBeam = glm::rotate(
+            base,
+            windmill_.rotorAngle * 5.0f,
+            glm::vec3(0.0f, 1.0f, 0.0f)
+        );
+
+        // Position locale de la zone de contact
+        // Valeurs initiales à ajuster visuellement
+        const glm::vec3 localContact(
+            -0.48f, 0.08f, 0.0f
+        );
+
+        // Position du point d'émission dans le monde
+        const glm::vec3 emitterPos = glm::vec3(
+            mainBeam * glm::vec4(localContact, 1.0f)
+        );
+
+        // Direction vers l'extérieur du moulin
+        const glm::vec3 emitterDir = glm::normalize(
+            glm::vec3(
+                mainBeam * glm::vec4(
+                    -1.0f, 0.0f, 0.0f, 0.0f
+                )
+            )
+        );
+
+
+        // Mise à jour GPU des particules
+        updateParticles(emitterPos, emitterDir);
+
+        // Dessin des particules
+        drawParticles(view);
+
+        // Échange des buffers
+        inputParticleBuffer_ = 1 - inputParticleBuffer_;
     }
+
 
 
     // ---------- Décor du TP2 : modèles, sol, spots, clôtures ----------
@@ -965,15 +1041,186 @@ struct App : public OpenGLApplication
     // ---------- Partie 3 : particules (compute shader) ----------
     // TODO: méthodes de la partie 3 (mise à jour et dessin des particules)
 
+    void updateParticles(
+        const glm::vec3& emitterPos,
+        const glm::vec3& emitterDir)
+    {
+        // Activer le compute shader
+        particlesUpdateShader_.use();
+
+        // Envoyer les uniforms
+        glUniform1f(
+            particlesUpdateShader_.timeULoc,
+            totalTime
+        );
+
+        glUniform1f(
+            particlesUpdateShader_.deltaTimeULoc,
+            deltaTime_
+        );
+
+        glUniform3fv(
+            particlesUpdateShader_.emitterPositionULoc,
+            1,
+            glm::value_ptr(emitterPos)
+        );
+
+        glUniform3fv(
+            particlesUpdateShader_.emitterDirectionULoc,
+            1,
+            glm::value_ptr(emitterDir)
+        );
+
+        glUniform1ui(
+            particlesUpdateShader_.particleCountULoc,
+            nParticles_
+        );
+
+        // SSBO d'entrée : binding 0
+        particles_[inputParticleBuffer_].setBindingIndex(0);
+
+        // SSBO de sortie : binding 1
+        particles_[1 - inputParticleBuffer_].setBindingIndex(1);
+
+        // Exécuter le compute shader
+        if (nParticles_ > 0)
+        {
+            glDispatchCompute(
+                (nParticles_ + 63) / 64,
+                1,
+                1
+            );
+        }
+
+        // Synchronisation des écritures GPU
+        glMemoryBarrier(
+            GL_SHADER_STORAGE_BARRIER_BIT |
+            GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT
+        );
+    }
+
+
+    void drawParticles(const glm::mat4& view)
+    {
+        // Activer le shader de dessin
+        particlesDrawShader_.use();
+
+        // Envoyer les matrices
+        glUniformMatrix4fv(
+            particlesDrawShader_.modelViewULoc,
+            1,
+            GL_FALSE,
+            glm::value_ptr(view)
+        );
+
+        glUniformMatrix4fv(
+            particlesDrawShader_.projectionULoc,
+            1,
+            GL_FALSE,
+            glm::value_ptr(projectionMatrix_)
+        );
+
+        // Texture sur l'unité 0
+        glUniform1i(
+            particlesDrawShader_.textureSamplerULoc,
+            0
+        );
+
+        particlesTexture_.use();
+
+        // Configurer le VAO
+        glBindVertexArray(vaoParticles_);
+
+        // Lire les particules du buffer d'entrée
+        particles_[inputParticleBuffer_].bindAsArray();
+
+        // Attribut 0 : position
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(
+            0,
+            3,
+            GL_FLOAT,
+            GL_FALSE,
+            sizeof(Particle),
+            (void*)offsetof(Particle, position)
+        );
+
+        // Attribut 1 : orientation
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(
+            1,
+            1,
+            GL_FLOAT,
+            GL_FALSE,
+            sizeof(Particle),
+            (void*)offsetof(Particle, zOrientation)
+        );
+
+        // Attribut 2 : couleur
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(
+            2,
+            4,
+            GL_FLOAT,
+            GL_FALSE,
+            sizeof(Particle),
+            (void*)offsetof(Particle, color)
+        );
+
+        // Attribut 3 : taille
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(
+            3,
+            2,
+            GL_FLOAT,
+            GL_FALSE,
+            sizeof(Particle),
+            (void*)offsetof(Particle, size)
+        );
+
+        // Activer la transparence
+        glEnable(GL_BLEND);
+
+        glBlendFunc(
+            GL_SRC_ALPHA,
+            GL_ONE_MINUS_SRC_ALPHA
+        );
+
+        // Conserver le test de profondeur,
+        // mais désactiver l'écriture
+        glDepthMask(GL_FALSE);
+
+        // Dessiner les deux faces des particules
+        glDisable(GL_CULL_FACE);
+
+        // Dessiner les particules
+        glDrawArrays(
+            GL_POINTS,
+            0,
+            nParticles_
+        );
+
+        // Restaurer les états OpenGL
+        glEnable(GL_CULL_FACE);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+
+        glBindVertexArray(0);
+    }
+
+
 private:
     // ---------- Shaders ----------
     EdgeEffect edgeEffectShader_;
     PhongShading phongShadingShader_;
     Sky skyShader_;
     Bezier bezierShader_;
-    // TODO: Partie 2-3 : ajouter les shaders (herbe, dessin et mise à jour des particules)
+    // TODO: Partie 2 : ajouter les shaders (herbe, dessin et mise à jour des particules)
     Grass grassShader_;
     Texture2D wheatTexture_;
+    ParticlesDraw particlesDrawShader_;
+    ParticlesUpdate particlesUpdateShader_;
+
 
     // ---------- Textures ----------
     Texture2D grassTexture_;
@@ -982,7 +1229,7 @@ private:
     Texture2D whiteTexture_;
     TextureCubeMap skyboxTexture_;
     TextureCubeMap skyboxNightTexture_;
-    // TODO: Partie 3 : ajouter la texture des particules
+    Texture2D particlesTexture_;
 
     // ---------- Modèles ----------
     Model grass_;
@@ -1042,8 +1289,10 @@ private:
     static const unsigned int MAX_PARTICLES_ = 64;
     unsigned int nParticles_;
 
-    GLuint vaoParticles_;
+    GLuint vaoParticles_ = 0;
+    unsigned int inputParticleBuffer_ = 0;
     ShaderStorageBuffer particles_[2];
+
 };
 
 int main(int argc, char *argv[])
@@ -1053,10 +1302,10 @@ int main(int argc, char *argv[])
     settings.context.depthBits = 24;
     settings.context.stencilBits = 8;
     settings.context.antiAliasingLevel = 4;
-    settings.context.majorVersion = 3;
+    settings.context.majorVersion = 4;
     settings.context.minorVersion = 3;
     settings.context.attributeFlags = sf::ContextSettings::Attribute::Core;
 
     App app;
-    app.run(argc, argv, "Tp2", settings);
+    app.run(argc, argv, "Tp3", settings);
 }

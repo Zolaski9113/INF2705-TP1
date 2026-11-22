@@ -64,3 +64,30 @@ protected:
     virtual void load() override;
     virtual void getAllUniformLocations() override;
 };
+
+
+class ParticlesDraw : public ShaderProgram
+{
+public:
+    GLint modelViewULoc;
+    GLint projectionULoc;
+    GLint textureSamplerULoc;
+
+protected:
+    void load() override;
+    void getAllUniformLocations() override;
+};
+
+class ParticlesUpdate : public ShaderProgram
+{
+public:
+    GLint timeULoc;
+    GLint deltaTimeULoc;
+    GLint emitterPositionULoc;
+    GLint emitterDirectionULoc;
+    GLint particleCountULoc;
+
+protected:
+    void load() override;
+    void getAllUniformLocations() override;
+};
